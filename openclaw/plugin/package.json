@@ -1,0 +1,12 @@
+{
+  "name": "concentray",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Concentray OpenClaw plugin",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

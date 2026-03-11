@@ -7,8 +7,10 @@ TM_LOCAL_STORE = "__REPO_ROOT__/.data/store.json"
 TM_SKILLS_ALLOWLIST = "__REPO_ROOT__/apps/cli/src/concentray_cli/skills/skills.yaml"
 TM_UPDATED_BY = "AI"
 
-[plugins]
-manifest = "__REPO_ROOT__/openclaw/plugin_tools/manifest.json"
+[plugin]
+id = "concentray"
+path = "__REPO_ROOT__/openclaw/plugin"
+manifest = "__REPO_ROOT__/openclaw/plugin/openclaw.plugin.json"
 
 [policy]
 allowlist = "__OPENCLAW_ALLOWLIST__"

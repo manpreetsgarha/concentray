@@ -444,14 +444,19 @@ Install the OpenClaw integration:
 ./scripts/concentray agent install openclaw
 ```
 
-This runs the bootstrap and generates:
+This now does two things:
+- prepares the Concentray OpenClaw bundle
+- registers the local plugin with OpenClaw when the `openclaw` binary is available on that machine
+
+It generates:
 - `.generated/openclaw/default-agent.toml`
 - `.generated/openclaw/allowlist.toml`
 
 OpenClaw is plugin-first.
 
 The OpenClaw bundle contains:
-- plugin manifest: `openclaw/plugin_tools/manifest.json`
+- native plugin root: `openclaw/plugin/`
+- OpenClaw plugin manifest: `openclaw/plugin/openclaw.plugin.json`
 - wrapper runner: `openclaw/plugin_tools/invoke_tool.py`
 - fallback skill: `openclaw/SKILL.md`
 
@@ -483,6 +488,7 @@ Best fit:
 - typed tool wrappers over the same CLI
 - fallback skill only when plugin mode is unavailable
 - use `task_claim_next` for safe pickup
+- use `comment_add(type=\"log\", metadata=...)` for verbose trace data; there is no separate log tool
 
 This keeps one consistent core:
 - shared CLI contract

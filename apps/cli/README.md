@@ -157,10 +157,24 @@ cd /path/to/concentray
 bash scripts/bootstrap/bootstrap_openclaw.sh
 ```
 
+Install and register the plugin with OpenClaw:
+
+```bash
+cd /path/to/concentray
+concentray agent install openclaw
+```
+
+If the `openclaw` binary is available, this registers the local plugin automatically through OpenClaw's own plugin install flow.
+
 This writes a resolved OpenClaw profile to:
 
 - `.generated/openclaw/default-agent.toml`
 - `.generated/openclaw/allowlist.toml`
+
+Native plugin files live in:
+
+- `openclaw/plugin/`
+- `openclaw/plugin/openclaw.plugin.json`
 
 Run the wrapper smoke flow:
 
@@ -168,6 +182,8 @@ Run the wrapper smoke flow:
 cd /path/to/concentray
 bash openclaw/examples/smoke.sh
 ```
+
+Logs are posted through `comment_add` with `type=log` and optional structured `metadata`. There is no separate OpenClaw log tool.
 
 ## Agent installers
 

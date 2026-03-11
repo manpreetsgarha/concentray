@@ -1,0 +1,14 @@
+{
+  "id": "concentray",
+  "name": "Concentray",
+  "version": "0.1.0",
+  "description": "Local-first task coordination tools for OpenClaw.",
+  "skills": [
+    "skills/concentray-openclaw"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

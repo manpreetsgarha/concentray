@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import Feather from "@expo/vector-icons/Feather";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   type ImageStyle,
@@ -579,10 +579,10 @@ export default function App() {
   const [taskDeleteTarget, setTaskDeleteTarget] = useState<Task | null>(null);
   const [showQueueFilters, setShowQueueFilters] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
-  const [showTaskConfig, setShowTaskConfig] = useState(false);
   const [showCommentComposer, setShowCommentComposer] = useState(false);
   const [activityView, setActivityView] = useState<ActivityView>("comments");
   const [expandedLogIds, setExpandedLogIds] = useState<string[]>([]);
+  const taskContextInputRef = useRef<TextInput>(null);
 
   const sharedApiUrl = (process.env.EXPO_PUBLIC_LOCAL_API_URL ?? "").trim();
   const uploadLimitMbRaw = Number(process.env.EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB ?? "25");
@@ -752,7 +752,6 @@ export default function App() {
   }, [selectedTask]);
 
   useEffect(() => {
-    setShowTaskConfig(false);
     setShowCommentComposer(false);
     setActivityView("comments");
     setExpandedLogIds([]);
@@ -1394,9 +1393,12 @@ export default function App() {
     );
   }, []);
 
-  const selectedTaskContextIsUrl = looksLikeUrl(selectedTask?.contextLink);
+  const selectedTaskDisplayTitle = taskDraft.title.trim() || selectedTask?.title || "Untitled task";
+  const selectedTaskContextValue = taskDraft.contextLink.trim();
+  const selectedTaskContextIsUrl = looksLikeUrl(selectedTaskContextValue);
   const selectedTaskContextNote =
-    selectedTask?.contextLink && !selectedTaskContextIsUrl ? selectedTask.contextLink : null;
+    selectedTaskContextValue && !selectedTaskContextIsUrl ? selectedTaskContextValue : null;
+  const contextEditorLocationLabel = singleColumn ? "below" : "on the right";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1629,31 +1631,43 @@ export default function App() {
                               />
                             </View>
                             <View style={styles.taskHeroBody}>
-                              <Text style={styles.taskHeroTitle}>{selectedTask.title}</Text>
+                              <Text style={styles.taskHeroTitle}>{selectedTaskDisplayTitle}</Text>
                               {selectedTaskContextNote ? (
                                 <Text style={styles.taskHeroDescription}>{selectedTaskContextNote}</Text>
                               ) : selectedTaskContextIsUrl ? (
                                 <Pressable
                                   style={styles.taskHeroLink}
-                                  onPress={() => void openLink(selectedTask.contextLink ?? "")}
+                                  onPress={() => void openLink(selectedTaskContextValue)}
                                 >
                                   <Feather name="external-link" size={15} color="#dbe1ec" />
                                   <Text style={styles.taskHeroLinkText}>Open context link</Text>
                                 </Pressable>
                               ) : (
-                                <Text style={styles.taskHeroPlaceholder}>
-                                  Add a context note or URL to make the task sharper for both human and AI.
-                                </Text>
+                                <View style={styles.taskHeroPlaceholderCard}>
+                                  <Text style={styles.taskHeroPlaceholderTitle}>No context yet</Text>
+                                  <Text style={styles.taskHeroPlaceholder}>
+                                    Add a context note or URL in the editor {contextEditorLocationLabel} to sharpen the
+                                    task for both human and AI.
+                                  </Text>
+                                  <Pressable
+                                    style={styles.quietButton}
+                                    onPress={() => {
+                                      taskContextInputRef.current?.focus();
+                                    }}
+                                  >
+                                    <Text style={styles.quietButtonText}>Add context</Text>
+                                  </Pressable>
+                                </View>
                               )}
                             </View>
                           </View>
 
                           <View style={styles.summaryPills}>
                             <View style={styles.summaryPill}>
-                              <Text style={styles.summaryPillText}>{selectedTask.status}</Text>
+                              <Text style={styles.summaryPillText}>{taskDraft.status}</Text>
                             </View>
                             <View style={styles.summaryPillMuted}>
-                              <Text style={styles.summaryPillMutedText}>{selectedTask.assignee} lane</Text>
+                              <Text style={styles.summaryPillMutedText}>{taskDraft.assignee} lane</Text>
                             </View>
                             <View style={styles.summaryPillMuted}>
                               <Text style={styles.summaryPillMutedText}>Urgency {taskDraft.aiUrgency}/5</Text>
@@ -1832,7 +1846,7 @@ export default function App() {
                           {uploadError ? <Text style={styles.inlineError}>{uploadError}</Text> : null}
                           <View style={styles.composerDockRow}>
                             <View style={styles.composerAvatar}>
-                              <Text style={styles.composerAvatarText}>H</Text>
+                              <Feather name="user" size={18} color="#f8fafc" />
                             </View>
                             <View style={styles.composerInputShell}>
                               <TextInput
@@ -1867,15 +1881,94 @@ export default function App() {
                       )}
                     </View>
 
-                    <View style={[styles.taskWorkspaceSideRail, singleColumn ? styles.taskWorkspaceSideRailSingle : null]}>
+                    <ScrollView
+                      style={[styles.taskWorkspaceSideRail, singleColumn ? styles.taskWorkspaceSideRailSingle : null]}
+                      contentContainerStyle={styles.taskWorkspaceSideRailContent}
+                      keyboardShouldPersistTaps="handled"
+                    >
                       <View style={styles.sideRailCard}>
                         <View style={styles.sideRailCardHeader}>
-                          <Text style={styles.sideRailTitle}>Task properties</Text>
-                          <Pressable style={styles.quietButton} onPress={() => setShowTaskConfig((current) => !current)}>
-                            <Text style={styles.quietButtonText}>{showTaskConfig ? "Hide edit" : "Edit"}</Text>
+                          <Text style={styles.sideRailTitle}>Edit task</Text>
+                          {taskDraftDirty ? (
+                            <View style={styles.sideRailDirtyPill}>
+                              <Text style={styles.sideRailDirtyPillText}>Unsaved</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <Text style={styles.sideRailHelpText}>Update the task title, context, routing, and urgency here.</Text>
+                        <TextInput
+                          style={[styles.input, styles.sideRailTitleInput]}
+                          value={taskDraft.title}
+                          onChangeText={(value) => setTaskDraft((current) => ({ ...current, title: value }))}
+                          placeholder="Task title"
+                          placeholderTextColor="#7d8597"
+                        />
+                        <TextInput
+                          ref={taskContextInputRef}
+                          style={[styles.input, styles.sideRailContextInput]}
+                          value={taskDraft.contextLink}
+                          onChangeText={(value) => setTaskDraft((current) => ({ ...current, contextLink: value }))}
+                          placeholder="Context note or URL"
+                          placeholderTextColor="#7d8597"
+                          multiline
+                        />
+                        <View style={styles.compactControlsRow}>
+                          <ChoiceGroup
+                            label="Status"
+                            value={taskDraft.status}
+                            onChange={(value) => setTaskDraft((current) => ({ ...current, status: value as TaskStatus }))}
+                            options={[
+                              { label: "Pending", value: "Pending" },
+                              { label: "In Progress", value: "In Progress" },
+                              { label: "Blocked", value: "Blocked" },
+                              { label: "Done", value: "Done" }
+                            ]}
+                          />
+                          <ChoiceGroup
+                            label="Created By"
+                            value={taskDraft.createdBy}
+                            onChange={(value) => setTaskDraft((current) => ({ ...current, createdBy: value as Actor }))}
+                            options={[
+                              { label: "Human", value: "Human" },
+                              { label: "AI", value: "AI" }
+                            ]}
+                          />
+                          <ChoiceGroup
+                            label="Assignee"
+                            value={taskDraft.assignee}
+                            onChange={(value) => setTaskDraft((current) => ({ ...current, assignee: value as Actor }))}
+                            options={[
+                              { label: "Human", value: "Human" },
+                              { label: "AI", value: "AI" }
+                            ]}
+                          />
+                          <ChoiceGroup
+                            label="Urgency"
+                            value={String(taskDraft.aiUrgency)}
+                            onChange={(value) => setTaskDraft((current) => ({ ...current, aiUrgency: Number(value) }))}
+                            options={[1, 2, 3, 4, 5].map((value) => ({ label: `${value}`, value: String(value) }))}
+                          />
+                        </View>
+                        <View style={styles.sideRailActionRow}>
+                          <Pressable
+                            style={[styles.quietButton, !taskDraftDirty || taskSaving ? styles.buttonDisabled : null]}
+                            onPress={() => setTaskDraft(createTaskDraft(selectedTask))}
+                            disabled={!taskDraftDirty || taskSaving}
+                          >
+                            <Text style={styles.quietButtonText}>Reset</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.primaryButtonSmall, !taskDraftDirty || taskSaving ? styles.buttonDisabled : null]}
+                            onPress={() => void saveTaskConfig()}
+                            disabled={!taskDraftDirty || taskSaving}
+                          >
+                            <Text style={styles.primaryButtonText}>{taskSaving ? "Saving..." : "Save Changes"}</Text>
                           </Pressable>
                         </View>
+                      </View>
 
+                      <View style={styles.sideRailCard}>
+                        <Text style={styles.sideRailTitle}>Task properties</Text>
                         <SideRailItem label="Workspace" value={activeWorkspace?.name ?? "Current workspace"} />
                         <SideRailItem label="Status" value={selectedTask.status} accent={selectedTask.status === "Blocked"} />
                         <SideRailItem label="Assignee" value={selectedTask.assignee} />
@@ -1884,7 +1977,7 @@ export default function App() {
                         <SideRailItem label="Updated" value={formatTimestamp(selectedTask.updatedAt)} />
                         {selectedTask.workerId ? <SideRailItem label="Worker" value={selectedTask.workerId} /> : null}
                         {selectedTask.claimedAt ? <SideRailItem label="Claimed" value={formatTimestamp(selectedTask.claimedAt)} /> : null}
-                        {selectedTask.contextLink && selectedTaskContextIsUrl ? (
+                        {selectedTask.contextLink && looksLikeUrl(selectedTask.contextLink) ? (
                           <View style={styles.sideRailItem}>
                             <Text style={styles.sideRailLabel}>Context</Text>
                             <Pressable style={styles.sideRailLink} onPress={() => void openLink(selectedTask.contextLink ?? "")}>
@@ -1894,72 +1987,7 @@ export default function App() {
                           </View>
                         ) : null}
                       </View>
-
-                      {showTaskConfig ? (
-                        <View style={styles.sideRailCard}>
-                          <Text style={styles.sideRailTitle}>Edit task</Text>
-                          <TextInput
-                            style={styles.input}
-                            value={taskDraft.title}
-                            onChangeText={(value) => setTaskDraft((current) => ({ ...current, title: value }))}
-                            placeholder="Task title"
-                            placeholderTextColor="#7d8597"
-                          />
-                          <TextInput
-                            style={styles.input}
-                            value={taskDraft.contextLink}
-                            onChangeText={(value) => setTaskDraft((current) => ({ ...current, contextLink: value }))}
-                            placeholder="Context link or note"
-                            placeholderTextColor="#7d8597"
-                            multiline
-                          />
-                          <View style={styles.compactControlsRow}>
-                            <ChoiceGroup
-                              label="Status"
-                              value={taskDraft.status}
-                              onChange={(value) => setTaskDraft((current) => ({ ...current, status: value as TaskStatus }))}
-                              options={[
-                                { label: "Pending", value: "Pending" },
-                                { label: "In Progress", value: "In Progress" },
-                                { label: "Blocked", value: "Blocked" },
-                                { label: "Done", value: "Done" }
-                              ]}
-                            />
-                            <ChoiceGroup
-                              label="Created By"
-                              value={taskDraft.createdBy}
-                              onChange={(value) => setTaskDraft((current) => ({ ...current, createdBy: value as Actor }))}
-                              options={[
-                                { label: "Human", value: "Human" },
-                                { label: "AI", value: "AI" }
-                              ]}
-                            />
-                            <ChoiceGroup
-                              label="Assignee"
-                              value={taskDraft.assignee}
-                              onChange={(value) => setTaskDraft((current) => ({ ...current, assignee: value as Actor }))}
-                              options={[
-                                { label: "Human", value: "Human" },
-                                { label: "AI", value: "AI" }
-                              ]}
-                            />
-                            <ChoiceGroup
-                              label="Urgency"
-                              value={String(taskDraft.aiUrgency)}
-                              onChange={(value) => setTaskDraft((current) => ({ ...current, aiUrgency: Number(value) }))}
-                              options={[1, 2, 3, 4, 5].map((value) => ({ label: `${value}`, value: String(value) }))}
-                            />
-                          </View>
-                          <Pressable
-                            style={[styles.primaryButtonSmall, !taskDraftDirty || taskSaving ? styles.buttonDisabled : null]}
-                            onPress={() => void saveTaskConfig()}
-                            disabled={!taskDraftDirty || taskSaving}
-                          >
-                            <Text style={styles.primaryButtonText}>{taskSaving ? "Saving..." : "Save Changes"}</Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
-                    </View>
+                    </ScrollView>
                   </View>
                 </View>
               ) : null}
@@ -2811,9 +2839,12 @@ const styles = StyleSheet.create({
   },
   taskWorkspaceSideRail: {
     width: 330,
+    flexShrink: 0,
     borderLeftWidth: 1,
     borderLeftColor: "rgba(255,255,255,0.07)",
-    backgroundColor: "#16191f",
+    backgroundColor: "#16191f"
+  },
+  taskWorkspaceSideRailContent: {
     padding: 24,
     gap: 16
   },
@@ -2821,7 +2852,8 @@ const styles = StyleSheet.create({
     width: "100%",
     borderLeftWidth: 0,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.07)"
+    borderTopColor: "rgba(255,255,255,0.07)",
+    maxHeight: 360
   },
   taskHero: {
     gap: 18
@@ -2857,6 +2889,21 @@ const styles = StyleSheet.create({
     color: "#7d8597",
     fontSize: 17,
     lineHeight: 26
+  },
+  taskHeroPlaceholderCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    padding: 16,
+    gap: 10,
+    alignSelf: "flex-start",
+    maxWidth: 520
+  },
+  taskHeroPlaceholderTitle: {
+    color: "#f8fafc",
+    fontSize: 17,
+    fontWeight: "800"
   },
   taskHeroLink: {
     flexDirection: "row",
@@ -2961,6 +3008,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     color: "#f8fafc"
+  },
+  sideRailTitleInput: {
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  sideRailContextInput: {
+    minHeight: 112,
+    textAlignVertical: "top"
   },
   createTitleInput: {
     fontSize: 16,
@@ -3253,15 +3308,10 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#6fb347",
+    backgroundColor: "#315d3a",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4
-  },
-  composerAvatarText: {
-    color: "#f8fafc",
-    fontSize: 16,
-    fontWeight: "800"
   },
   composerInputShell: {
     flex: 1,
@@ -3338,10 +3388,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12
   },
+  sideRailDirtyPill: {
+    borderRadius: 999,
+    backgroundColor: "rgba(234, 96, 81, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(234, 96, 81, 0.34)",
+    paddingHorizontal: 10,
+    paddingVertical: 4
+  },
+  sideRailDirtyPillText: {
+    color: "#ffb2a8",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6
+  },
   sideRailTitle: {
     color: "#f8fafc",
     fontSize: 16,
     fontWeight: "800"
+  },
+  sideRailHelpText: {
+    color: "#9ea6b8",
+    fontSize: 13,
+    lineHeight: 20
+  },
+  sideRailActionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap"
   },
   sideRailItem: {
     gap: 5,

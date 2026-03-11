@@ -4,6 +4,7 @@ Use this skill when handling collaborative Concentray workflows.
 
 ## Primary rule
 Use plugin tools first (`task_claim_next`, `task_get_next`, `task_get`, `task_update`, `comment_add`, `context_export`, `skill_run`).
+These tools are provided by the native Concentray OpenClaw plugin under `openclaw/plugin/` once `./scripts/concentray agent install openclaw` has been run.
 Only fall back to direct shell CLI commands if plugin tools are unavailable.
 
 ## Runtime assumptions
@@ -25,7 +26,7 @@ Only fall back to direct shell CLI commands if plugin tools are unavailable.
 1. Use `task_claim_next` when starting work so another agent does not pick the same task.
 2. Use `task_get_next` only for queue inspection or read-only previews.
 3. Always read task context before changing status.
-4. Post verbose execution traces as `log` comments. Put raw tool payloads in `metadata` so the operator can keep the main comment thread clean.
+4. There is no separate log tool. Post verbose execution traces through `comment_add` with `type="log"`. Put raw tool payloads in `metadata` so the operator can keep the main comment thread clean.
 5. If blocked, write `Status=Blocked` and an `Input_Request` payload.
 6. Prefer `Assignee=AI` only when AI can act immediately.
 7. Keep outputs structured JSON for reliable downstream parsing.

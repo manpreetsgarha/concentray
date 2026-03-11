@@ -2,7 +2,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MANIFEST="$REPO_ROOT/openclaw/plugin_tools/manifest.json"
+PLUGIN_ROOT="$REPO_ROOT/openclaw/plugin"
+PLUGIN_MANIFEST="$PLUGIN_ROOT/openclaw.plugin.json"
+PLUGIN_PACKAGE="$PLUGIN_ROOT/package.json"
 ALLOWLIST_TEMPLATE="$REPO_ROOT/openclaw/policy/allowlist.toml"
 PROFILE_TEMPLATE="$REPO_ROOT/openclaw/profiles/default-agent.toml"
 GENERATED_DIR="$REPO_ROOT/.generated/openclaw"
@@ -10,8 +12,13 @@ ALLOWLIST="$GENERATED_DIR/allowlist.toml"
 PROFILE="$GENERATED_DIR/default-agent.toml"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3)}"
 
-if [[ ! -f "$MANIFEST" ]]; then
-  echo "Missing OpenClaw manifest: $MANIFEST" >&2
+if [[ ! -f "$PLUGIN_MANIFEST" ]]; then
+  echo "Missing OpenClaw plugin manifest: $PLUGIN_MANIFEST" >&2
+  exit 1
+fi
+
+if [[ ! -f "$PLUGIN_PACKAGE" ]]; then
+  echo "Missing OpenClaw plugin package: $PLUGIN_PACKAGE" >&2
   exit 1
 fi
 
@@ -49,6 +56,7 @@ if [[ "${RUN_SMOKE:-1}" == "1" ]]; then
 fi
 
 echo "OpenClaw bundle validated."
-echo "Manifest: $MANIFEST"
+echo "Plugin:   $PLUGIN_ROOT"
+echo "Manifest: $PLUGIN_MANIFEST"
 echo "Profile:  $PROFILE"
 echo "Policy:   $ALLOWLIST"

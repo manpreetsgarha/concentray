@@ -521,22 +521,48 @@ def test_agent_install_claude_writes_skill_agent_and_command(tmp_path: Path) -> 
     assert "task claim-next" in command_file.read_text()
 
 
-def test_agent_install_openclaw_runs_bootstrap(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+def test_agent_install_openclaw_registers_plugin_when_binary_exists(monkeypatch) -> None:
+    calls: list[list[str]] = []
 
     def fake_run(cmd, text, capture_output, check, cwd):  # type: ignore[no-untyped-def]
-        captured["cmd"] = cmd
-        captured["cwd"] = cwd
-        return SimpleNamespace(returncode=0, stdout="bootstrap ok", stderr="")
+        calls.append(list(cmd))
+        if "bootstrap_openclaw.sh" in " ".join(cmd):
+            return SimpleNamespace(returncode=0, stdout="bootstrap ok", stderr="")
+        return SimpleNamespace(returncode=0, stdout="plugin installed", stderr="")
 
     monkeypatch.setattr("concentray_cli.main.subprocess.run", fake_run)
+    monkeypatch.setattr("concentray_cli.main.shutil.which", lambda value: "/usr/local/bin/openclaw" if value == "openclaw" else None)
 
     result = runner.invoke(app, ["agent", "install", "openclaw", "--json"], env=os.environ.copy())
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["target"] == "openclaw"
-    assert "bootstrap_openclaw.sh" in " ".join(captured["cmd"])  # type: ignore[index]
+    assert payload["plugin_id"] == "concentray"
+    assert payload["registration"]["registered"] is True
+    assert payload["registration"]["method"] == "openclaw-cli"
+    assert any("bootstrap_openclaw.sh" in " ".join(cmd) for cmd in calls)
+    assert any(cmd[:4] == ["/usr/local/bin/openclaw", "plugins", "install", "-l"] for cmd in calls)
+
+
+def test_agent_install_openclaw_skips_registration_when_binary_missing(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, text, capture_output, check, cwd):  # type: ignore[no-untyped-def]
+        calls.append(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="bootstrap ok", stderr="")
+
+    monkeypatch.setattr("concentray_cli.main.subprocess.run", fake_run)
+    monkeypatch.setattr("concentray_cli.main.shutil.which", lambda value: None)
+
+    result = runner.invoke(app, ["agent", "install", "openclaw", "--json"], env=os.environ.copy())
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["registration"]["registered"] is False
+    assert "openclaw command not found" in payload["registration"]["reason"]
+    assert len(calls) == 1
+    assert "bootstrap_openclaw.sh" in " ".join(calls[0])
 
 
 def test_init_creates_default_workspace_and_store(tmp_path: Path) -> None:

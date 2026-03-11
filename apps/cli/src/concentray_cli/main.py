@@ -90,6 +90,18 @@ def bundled_skill_path() -> Path:
     return project_root() / "skills" / "concentray-task-operator"
 
 
+def openclaw_plugin_root() -> Path:
+    return project_root() / "openclaw" / "plugin"
+
+
+def openclaw_plugin_manifest() -> Path:
+    return openclaw_plugin_root() / "openclaw.plugin.json"
+
+
+def openclaw_plugin_id() -> str:
+    return "concentray"
+
+
 def pid_is_running(pid: Optional[int]) -> bool:
     if not pid or pid <= 0:
         return False
@@ -253,6 +265,40 @@ def write_text_file(path: Path, content: str, force: bool) -> None:
         raise typer.BadParameter(f"Destination already exists: {path}. Use --force to overwrite.")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
+
+
+def install_openclaw_plugin_with_cli(repo: Path, plugin_root: Path) -> Dict[str, Any]:
+    openclaw_bin = shutil.which("openclaw")
+    if not openclaw_bin:
+        return {
+            "registered": False,
+            "method": None,
+            "reason": "openclaw command not found on PATH",
+            "restart_required": False,
+        }
+
+    install_cmd = [openclaw_bin, "plugins", "install", "-l", str(plugin_root)]
+    process = subprocess.run(
+        install_cmd,
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=str(repo),
+    )
+
+    combined_output = "\n".join(part for part in [process.stdout.strip(), process.stderr.strip()] if part).strip()
+    normalized_output = combined_output.lower()
+    if process.returncode != 0 and "already" not in normalized_output:
+        raise typer.BadParameter(combined_output or "OpenClaw plugin registration failed")
+
+    return {
+        "registered": True,
+        "method": "openclaw-cli",
+        "restart_required": True,
+        "command": " ".join(install_cmd),
+        "stdout": process.stdout.strip(),
+        "stderr": process.stderr.strip(),
+    }
 
 
 def render_claude_subagent(wrapper_command: str, store_path: str) -> str:
@@ -647,12 +693,21 @@ def agent_install(
         )
         if process.returncode != 0:
             raise typer.BadParameter(process.stderr.strip() or process.stdout.strip() or "OpenClaw install failed")
+        plugin_root = openclaw_plugin_root()
+        manifest = openclaw_plugin_manifest()
+        if not plugin_root.exists() or not manifest.exists():
+            raise typer.BadParameter(f"OpenClaw plugin bundle missing: {plugin_root}")
+        registration = install_openclaw_plugin_with_cli(repo, plugin_root)
         emit(
             {
                 "ok": True,
                 "target": "openclaw",
+                "plugin_id": openclaw_plugin_id(),
+                "plugin_root": str(plugin_root),
+                "manifest": str(manifest),
                 "profile": str(repo / ".generated" / "openclaw" / "default-agent.toml"),
                 "allowlist": str(repo / ".generated" / "openclaw" / "allowlist.toml"),
+                "registration": registration,
                 "stdout": process.stdout.strip(),
             },
             as_json,
