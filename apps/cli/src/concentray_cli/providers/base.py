@@ -47,5 +47,9 @@ class Provider(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def delete_task(self, task_id: str, *, updated_by: UpdatedBy) -> Optional[Task]:
+        raise NotImplementedError
+
+    @abstractmethod
     def add_comment(self, comment: Comment) -> Comment:
         raise NotImplementedError

@@ -31,6 +31,8 @@ interface WireTask {
   AI_Urgency?: number;
   Input_Request?: Record<string, unknown> | null;
   Input_Response?: Record<string, unknown> | null;
+  Worker_ID?: string | null;
+  Claimed_At?: string | null;
   Updated_At?: string;
 }
 
@@ -126,6 +128,18 @@ function formatTimestamp(value?: string): string {
   });
 }
 
+function looksLikeUrl(value?: string): boolean {
+  if (!value) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function formatMetadataJson(metadata?: Record<string, unknown> | null): string | null {
   if (!metadata || Object.keys(metadata).length === 0) {
     return null;
@@ -172,6 +186,8 @@ function toTask(wire: WireTask): Task {
     aiUrgency: wire.AI_Urgency,
     inputRequest: (wire.Input_Request as Task["inputRequest"]) ?? null,
     inputResponse: wire.Input_Response ?? null,
+    workerId: wire.Worker_ID ?? undefined,
+    claimedAt: wire.Claimed_At ?? undefined,
     updatedAt: wire.Updated_At ?? new Date().toISOString()
   };
 }
@@ -440,6 +456,20 @@ function FilterChip(props: {
   );
 }
 
+function SideRailItem(props: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  const { label, value, accent = false } = props;
+  return (
+    <View style={styles.sideRailItem}>
+      <Text style={styles.sideRailLabel}>{label}</Text>
+      <Text style={[styles.sideRailValue, accent ? styles.sideRailValueAccent : null]}>{value}</Text>
+    </View>
+  );
+}
+
 function TaskListItem(props: {
   task: Task;
   selected: boolean;
@@ -539,12 +569,14 @@ export default function App() {
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
   const [statusUpdatingTaskId, setStatusUpdatingTaskId] = useState<string>("");
+  const [taskDeleting, setTaskDeleting] = useState(false);
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [taskCreating, setTaskCreating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showWorkspaceCreator, setShowWorkspaceCreator] = useState(false);
   const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = useState<WorkspaceSummary | null>(null);
+  const [taskDeleteTarget, setTaskDeleteTarget] = useState<Task | null>(null);
   const [showQueueFilters, setShowQueueFilters] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showTaskConfig, setShowTaskConfig] = useState(false);
@@ -915,6 +947,49 @@ export default function App() {
       }
     },
     [activeWorkspace?.name, apiRequest, applyWorkspacePayload, demoWorkspaces.length, mutateDemoWorkspaces, refreshTasks, sharedMode]
+  );
+
+  const deleteTask = useCallback(
+    async (task: Task | null) => {
+      if (!task || taskDeleting) {
+        return;
+      }
+
+      if (!sharedMode) {
+        mutateDemoWorkspaces((current) =>
+          current.map((workspace) =>
+            workspace.summary.active
+              ? {
+                  ...workspace,
+                  tasks: workspace.tasks.filter((entry) => entry.id !== task.id),
+                  comments: workspace.comments.filter((entry) => entry.taskId !== task.id),
+                }
+              : workspace
+          )
+        );
+        setTaskDeleteTarget(null);
+        setSelectedTaskId((current) => (current === task.id ? "" : current));
+        setApiError(null);
+        return;
+      }
+
+      setTaskDeleting(true);
+      try {
+        await apiRequest(`/tasks/${task.id}`, {
+          method: "DELETE",
+        });
+        setRemoteTasks((current) => current.filter((entry) => entry.id !== task.id));
+        setRemoteComments((current) => current.filter((entry) => entry.taskId !== task.id));
+        setTaskDeleteTarget(null);
+        setSelectedTaskId((current) => (current === task.id ? "" : current));
+        setApiError(null);
+      } catch (error) {
+        setApiError(error instanceof Error ? error.message : "Failed to delete task.");
+      } finally {
+        setTaskDeleting(false);
+      }
+    },
+    [apiRequest, mutateDemoWorkspaces, sharedMode, taskDeleting]
   );
 
   const createTask = useCallback(async () => {
@@ -1309,6 +1384,7 @@ export default function App() {
   }, []);
 
   const closeTaskDrawer = useCallback(() => {
+    setTaskDeleteTarget(null);
     setSelectedTaskId("");
   }, []);
 
@@ -1317,6 +1393,10 @@ export default function App() {
       current.includes(commentId) ? current.filter((id) => id !== commentId) : [...current, commentId]
     );
   }, []);
+
+  const selectedTaskContextIsUrl = looksLikeUrl(selectedTask?.contextLink);
+  const selectedTaskContextNote =
+    selectedTask?.contextLink && !selectedTaskContextIsUrl ? selectedTask.contextLink : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1495,140 +1575,329 @@ export default function App() {
               {selectedTask ? (
                 <View style={[styles.drawerPanel, singleColumn ? styles.drawerPanelMobile : null]}>
                   <View style={styles.drawerHeader}>
-                    <View style={styles.summaryPills}>
-                      <View style={styles.summaryPill}>
-                        <Text style={styles.summaryPillText}>{selectedTask.status}</Text>
-                      </View>
-                      <View style={styles.summaryPillMuted}>
-                        <Text style={styles.summaryPillMutedText}>{selectedTask.assignee} lane</Text>
-                      </View>
-                        <View style={styles.summaryPillMuted}>
-                          <Text style={styles.summaryPillMutedText}>Urgency {taskDraft.aiUrgency}/5</Text>
-                        </View>
-                        <Pressable
-                          style={[styles.summaryActionPill, statusUpdatingTaskId === selectedTask.id ? styles.buttonDisabled : null]}
-                          onPress={() => void updateTaskStatus(selectedTask, selectedTask.status === "Done" ? "Pending" : "Done")}
-                          disabled={statusUpdatingTaskId === selectedTask.id}
-                        >
-                          <Feather name={selectedTask.status === "Done" ? "rotate-ccw" : "check"} size={13} color="#dbe1ec" />
-                          <Text style={styles.summaryActionPillText}>
-                            {statusUpdatingTaskId === selectedTask.id
-                              ? "Saving"
-                              : selectedTask.status === "Done"
-                                ? "Reopen"
-                                : "Mark done"}
-                          </Text>
-                        </Pressable>
-                      </View>
+                    <View style={styles.drawerHeaderTrail}>
+                      <Text style={styles.drawerWorkspaceLabel}>{activeWorkspace?.name ?? "Workspace"}</Text>
+                      <Text style={styles.drawerWorkspaceDot}>/</Text>
+                      <Text style={styles.drawerWorkspaceMeta}>
+                        {activityView === "comments" ? `${noteComments.length} comments` : `${logComments.length} logs`}
+                      </Text>
+                    </View>
 
-                    <Pressable style={styles.iconButton} onPress={closeTaskDrawer}>
-                      <Feather name="x" size={16} color="#cfd5e3" />
-                    </Pressable>
+                    <View style={styles.drawerHeaderActions}>
+                      <Pressable
+                        style={[styles.summaryActionPill, statusUpdatingTaskId === selectedTask.id ? styles.buttonDisabled : null]}
+                        onPress={() => void updateTaskStatus(selectedTask, selectedTask.status === "Done" ? "Pending" : "Done")}
+                        disabled={statusUpdatingTaskId === selectedTask.id}
+                      >
+                        <Feather name={selectedTask.status === "Done" ? "rotate-ccw" : "check"} size={13} color="#dbe1ec" />
+                        <Text style={styles.summaryActionPillText}>
+                          {statusUpdatingTaskId === selectedTask.id
+                            ? "Saving"
+                            : selectedTask.status === "Done"
+                              ? "Reopen"
+                              : "Mark done"}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.toolbarButton, taskDeleting ? styles.buttonDisabled : null]}
+                        onPress={() => setTaskDeleteTarget(selectedTask)}
+                        disabled={taskDeleting}
+                      >
+                        <Feather name="trash-2" size={14} color="#fca5a5" />
+                        <Text style={styles.toolbarDangerText}>Delete</Text>
+                      </Pressable>
+                      <Pressable style={styles.iconButton} onPress={closeTaskDrawer}>
+                        <Feather name="x" size={16} color="#cfd5e3" />
+                      </Pressable>
+                    </View>
                   </View>
 
-                  <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
-                    <View style={styles.detailPane}>
-                      <View style={styles.detailPaneHeader}>
-                        <View style={styles.detailHeaderCopy}>
-                          <Text style={styles.detailPanelTitle}>{selectedTask.title}</Text>
-                          <Text style={styles.detailPanelMeta}>Updated {formatTimestamp(selectedTask.updatedAt)}</Text>
-                        </View>
-
-                        <View style={styles.detailMetaRow}>
-                          {selectedTask.contextLink ? (
-                            <Pressable style={styles.toolbarButton} onPress={() => void openLink(selectedTask.contextLink ?? "") }>
-                              <Feather name="external-link" size={14} color="#dbe1ec" />
-                              <Text style={styles.toolbarButtonText}>Context</Text>
-                            </Pressable>
-                          ) : null}
-                          <Pressable style={styles.toolbarButton} onPress={() => setShowTaskConfig((current) => !current)}>
-                            <Feather name="sliders" size={14} color="#dbe1ec" />
-                            <Text style={styles.toolbarButtonText}>{showTaskConfig ? "Hide details" : "Details"}</Text>
-                          </Pressable>
-                          {activityView === "comments" ? (
-                            <Pressable style={styles.toolbarButton} onPress={() => setShowCommentComposer((current) => !current)}>
-                              <Feather name="message-square" size={14} color="#dbe1ec" />
-                              <Text style={styles.toolbarButtonText}>{showCommentComposer ? "Close comment" : "Add comment"}</Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      </View>
-
-                      <View style={styles.activityTabsRow}>
-                        <View style={styles.activityTabs}>
-                          <Pressable
-                            style={[styles.activityTab, activityView === "comments" ? styles.activityTabActive : null]}
-                            onPress={() => {
-                              setActivityView("comments");
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.activityTabText,
-                                activityView === "comments" ? styles.activityTabTextActive : null
-                              ]}
-                            >
-                              Comments
-                            </Text>
-                            <Text
-                              style={[
-                                styles.activityTabCount,
-                                activityView === "comments" ? styles.activityTabCountActive : null
-                              ]}
-                            >
-                              {noteComments.length}
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            style={[styles.activityTab, activityView === "logs" ? styles.activityTabActive : null]}
-                            onPress={() => {
-                              setActivityView("logs");
-                              setShowCommentComposer(false);
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.activityTabText,
-                                activityView === "logs" ? styles.activityTabTextActive : null
-                              ]}
-                            >
-                              Logs
-                            </Text>
-                            <Text
-                              style={[
-                                styles.activityTabCount,
-                                activityView === "logs" ? styles.activityTabCountActive : null
-                              ]}
-                            >
-                              {logComments.length}
-                            </Text>
-                          </Pressable>
-                        </View>
-                        <Text style={styles.activityCaption}>
-                          {activityView === "comments"
-                            ? "Human-useful notes, decisions, and artifacts"
-                            : "Verbose AI trace, payloads, and autonomous ping-pong"}
-                        </Text>
-                      </View>
-
-                      {selectedTask.status === "Blocked" && selectedTask.inputRequest ? (
-                        <View style={styles.blockerShell}>
-                          <BlockerCard
-                            inputRequest={selectedTask.inputRequest}
-                            onSubmit={(payload) => {
-                              void resolveInput(payload);
-                            }}
-                          />
-                        </View>
-                      ) : null}
-
-                      {showTaskConfig ? (
-                        <View style={styles.inlinePanel}>
-                          <View style={styles.inlinePanelHeader}>
-                            <Text style={styles.inlinePanelTitle}>Task details</Text>
-                            <Text style={styles.inlinePanelText}>Configure ownership and execution state.</Text>
+                  <View style={[styles.taskWorkspaceLayout, singleColumn ? styles.taskWorkspaceLayoutSingle : null]}>
+                    <View style={styles.taskWorkspaceMain}>
+                      <ScrollView
+                        style={styles.taskWorkspaceMainScroll}
+                        contentContainerStyle={styles.taskWorkspaceMainContent}
+                        showsVerticalScrollIndicator={false}
+                      >
+                        <View style={styles.taskHero}>
+                          <View style={styles.taskHeroRow}>
+                            <View style={styles.taskHeroCheck}>
+                              <Feather
+                                name={selectedTask.status === "Done" ? "check-circle" : "circle"}
+                                size={28}
+                                color={selectedTask.status === "Done" ? "#9fb0c7" : "#dbe1ec"}
+                              />
+                            </View>
+                            <View style={styles.taskHeroBody}>
+                              <Text style={styles.taskHeroTitle}>{selectedTask.title}</Text>
+                              {selectedTaskContextNote ? (
+                                <Text style={styles.taskHeroDescription}>{selectedTaskContextNote}</Text>
+                              ) : selectedTaskContextIsUrl ? (
+                                <Pressable
+                                  style={styles.taskHeroLink}
+                                  onPress={() => void openLink(selectedTask.contextLink ?? "")}
+                                >
+                                  <Feather name="external-link" size={15} color="#dbe1ec" />
+                                  <Text style={styles.taskHeroLinkText}>Open context link</Text>
+                                </Pressable>
+                              ) : (
+                                <Text style={styles.taskHeroPlaceholder}>
+                                  Add a context note or URL to make the task sharper for both human and AI.
+                                </Text>
+                              )}
+                            </View>
                           </View>
 
+                          <View style={styles.summaryPills}>
+                            <View style={styles.summaryPill}>
+                              <Text style={styles.summaryPillText}>{selectedTask.status}</Text>
+                            </View>
+                            <View style={styles.summaryPillMuted}>
+                              <Text style={styles.summaryPillMutedText}>{selectedTask.assignee} lane</Text>
+                            </View>
+                            <View style={styles.summaryPillMuted}>
+                              <Text style={styles.summaryPillMutedText}>Urgency {taskDraft.aiUrgency}/5</Text>
+                            </View>
+                            {selectedTask.workerId ? (
+                              <View style={styles.summaryPillMuted}>
+                                <Text style={styles.summaryPillMutedText}>{selectedTask.workerId}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+
+                        {selectedTask.status === "Blocked" && selectedTask.inputRequest ? (
+                          <View style={styles.blockerShell}>
+                            <BlockerCard
+                              inputRequest={selectedTask.inputRequest}
+                              onSubmit={(payload) => {
+                                void resolveInput(payload);
+                              }}
+                            />
+                          </View>
+                        ) : null}
+
+                        <View style={styles.activityTabsRow}>
+                          <View style={styles.activityTabs}>
+                            <Pressable
+                              style={[styles.activityTab, activityView === "comments" ? styles.activityTabActive : null]}
+                              onPress={() => setActivityView("comments")}
+                            >
+                              <Text
+                                style={[
+                                  styles.activityTabText,
+                                  activityView === "comments" ? styles.activityTabTextActive : null
+                                ]}
+                              >
+                                Comments
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.activityTabCount,
+                                  activityView === "comments" ? styles.activityTabCountActive : null
+                                ]}
+                              >
+                                {noteComments.length}
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              style={[styles.activityTab, activityView === "logs" ? styles.activityTabActive : null]}
+                              onPress={() => setActivityView("logs")}
+                            >
+                              <Text
+                                style={[
+                                  styles.activityTabText,
+                                  activityView === "logs" ? styles.activityTabTextActive : null
+                                ]}
+                              >
+                                Logs
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.activityTabCount,
+                                  activityView === "logs" ? styles.activityTabCountActive : null
+                                ]}
+                              >
+                                {logComments.length}
+                              </Text>
+                            </Pressable>
+                          </View>
+                          <Text style={styles.activityCaption}>
+                            {activityView === "comments"
+                              ? "Human-useful notes, decisions, and artifacts"
+                              : "Verbose AI trace, payloads, and autonomous ping-pong"}
+                          </Text>
+                        </View>
+
+                        <View style={styles.commentStack}>
+                          {(activityView === "comments" ? noteComments : logComments).length ? (
+                            (activityView === "comments" ? noteComments : logComments).map((comment) => {
+                              const rawMetadata = formatMetadataJson(comment.metadata);
+                              const showPayload = expandedLogIds.includes(comment.id);
+
+                              return (
+                                <View key={comment.id} style={styles.commentCard}>
+                                  <View style={styles.commentHeader}>
+                                    <View
+                                      style={[
+                                        styles.authorBadge,
+                                        comment.author === "AI" ? styles.authorBadgeAi : styles.authorBadgeHuman
+                                      ]}
+                                    >
+                                      <Text style={styles.authorBadgeText}>{comment.author}</Text>
+                                    </View>
+                                    <Text style={styles.commentType}>{comment.type}</Text>
+                                    <Text style={styles.commentTimestamp}>{formatTimestamp(comment.timestamp)}</Text>
+                                  </View>
+                                  <Text style={styles.commentBody}>{comment.message}</Text>
+
+                                  {comment.attachmentLink ? (
+                                    <View style={styles.attachmentCard}>
+                                      <Text style={styles.attachmentTitle}>
+                                        {comment.attachmentMeta?.filename ?? comment.attachmentLink}
+                                      </Text>
+                                      <Text style={styles.attachmentMeta}>
+                                        {(comment.attachmentMeta?.mime_type ?? "application/octet-stream").toLowerCase()} ·{" "}
+                                        {formatBytes(comment.attachmentMeta?.size_bytes)}
+                                      </Text>
+                                      {comment.attachmentMeta?.uploaded_at ? (
+                                        <Text style={styles.attachmentMeta}>
+                                          Uploaded {formatTimestamp(comment.attachmentMeta.uploaded_at)}
+                                        </Text>
+                                      ) : null}
+                                      {comment.attachmentMeta?.sha256 ? (
+                                        <Text style={styles.attachmentMeta}>SHA256 {shortHash(comment.attachmentMeta.sha256)}</Text>
+                                      ) : null}
+                                      {comment.attachmentMeta?.kind === "image" ? (
+                                        <Image source={{ uri: comment.attachmentLink }} style={styles.attachmentImage as ImageStyle} />
+                                      ) : null}
+                                      {comment.attachmentMeta?.kind === "video" ? (
+                                        <AttachmentVideoPreview
+                                          uri={comment.attachmentLink}
+                                          mimeType={comment.attachmentMeta?.mime_type}
+                                        />
+                                      ) : null}
+                                      {comment.attachmentMeta?.preview_text ? (
+                                        <View style={styles.previewCard}>
+                                          <Text style={styles.previewLabel}>Preview</Text>
+                                          <Text style={styles.previewText}>{comment.attachmentMeta.preview_text}</Text>
+                                        </View>
+                                      ) : null}
+                                      <Pressable
+                                        style={styles.toolbarButton}
+                                        onPress={() => void openLink(comment.attachmentLink ?? "")}
+                                      >
+                                        <Feather name="external-link" size={14} color="#dbe1ec" />
+                                        <Text style={styles.toolbarButtonText}>Open attachment</Text>
+                                      </Pressable>
+                                    </View>
+                                  ) : null}
+
+                                  {activityView === "logs" && rawMetadata ? (
+                                    <View style={styles.logPayloadCard}>
+                                      <View style={styles.logPayloadHeader}>
+                                        <Text style={styles.previewLabel}>Payload</Text>
+                                        <Pressable style={styles.quietButton} onPress={() => toggleLogPayload(comment.id)}>
+                                          <Text style={styles.quietButtonText}>{showPayload ? "Hide raw" : "Show raw"}</Text>
+                                        </Pressable>
+                                      </View>
+                                      {showPayload ? <Text style={styles.logPayloadText}>{rawMetadata}</Text> : null}
+                                    </View>
+                                  ) : null}
+                                </View>
+                              );
+                            })
+                          ) : (
+                            <View style={styles.emptyStateCard}>
+                              <Text style={styles.emptyStateTitle}>
+                                {activityView === "comments" ? "No comments yet" : "No logs yet"}
+                              </Text>
+                              <Text style={styles.emptyStateText}>
+                                {activityView === "comments"
+                                  ? "Human-facing notes, decisions, and artifacts will appear here."
+                                  : "Detailed AI execution logs and payloads will appear here."}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      </ScrollView>
+
+                      {activityView === "comments" ? (
+                        <View style={styles.composerDock}>
+                          {uploadDraft ? (
+                            <Text style={styles.uploadHint}>
+                              Selected: {uploadDraft.filename} ({formatBytes(uploadDraft.size_bytes)})
+                            </Text>
+                          ) : null}
+                          {uploadError ? <Text style={styles.inlineError}>{uploadError}</Text> : null}
+                          <View style={styles.composerDockRow}>
+                            <View style={styles.composerAvatar}>
+                              <Text style={styles.composerAvatarText}>H</Text>
+                            </View>
+                            <View style={styles.composerInputShell}>
+                              <TextInput
+                                style={styles.composerInput}
+                                value={commentDraft}
+                                onChangeText={setCommentDraft}
+                                placeholder="Add comment"
+                                placeholderTextColor="#7d8597"
+                                multiline
+                              />
+                              <View style={styles.composerActions}>
+                                <Pressable style={styles.composerIconButton} onPress={() => void attachFile()}>
+                                  <Feather name="paperclip" size={16} color="#cfd5e3" />
+                                </Pressable>
+                                <Pressable
+                                  style={[styles.composerSubmitButton, commentSubmitting ? styles.buttonDisabled : null]}
+                                  onPress={() => void addComment()}
+                                  disabled={commentSubmitting}
+                                >
+                                  <Feather name="arrow-up" size={15} color="#f8fafc" />
+                                </Pressable>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      ) : (
+                        <View style={styles.composerDockMuted}>
+                          <Text style={styles.composerDockMutedText}>
+                            Logs are read-only here. Switch back to Comments to add a human note or attachment.
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={[styles.taskWorkspaceSideRail, singleColumn ? styles.taskWorkspaceSideRailSingle : null]}>
+                      <View style={styles.sideRailCard}>
+                        <View style={styles.sideRailCardHeader}>
+                          <Text style={styles.sideRailTitle}>Task properties</Text>
+                          <Pressable style={styles.quietButton} onPress={() => setShowTaskConfig((current) => !current)}>
+                            <Text style={styles.quietButtonText}>{showTaskConfig ? "Hide edit" : "Edit"}</Text>
+                          </Pressable>
+                        </View>
+
+                        <SideRailItem label="Workspace" value={activeWorkspace?.name ?? "Current workspace"} />
+                        <SideRailItem label="Status" value={selectedTask.status} accent={selectedTask.status === "Blocked"} />
+                        <SideRailItem label="Assignee" value={selectedTask.assignee} />
+                        <SideRailItem label="Created by" value={selectedTask.createdBy} />
+                        <SideRailItem label="Urgency" value={`${selectedTask.aiUrgency ?? 3}/5`} />
+                        <SideRailItem label="Updated" value={formatTimestamp(selectedTask.updatedAt)} />
+                        {selectedTask.workerId ? <SideRailItem label="Worker" value={selectedTask.workerId} /> : null}
+                        {selectedTask.claimedAt ? <SideRailItem label="Claimed" value={formatTimestamp(selectedTask.claimedAt)} /> : null}
+                        {selectedTask.contextLink && selectedTaskContextIsUrl ? (
+                          <View style={styles.sideRailItem}>
+                            <Text style={styles.sideRailLabel}>Context</Text>
+                            <Pressable style={styles.sideRailLink} onPress={() => void openLink(selectedTask.contextLink ?? "")}>
+                              <Feather name="external-link" size={14} color="#dbe1ec" />
+                              <Text style={styles.sideRailLinkText}>Open link</Text>
+                            </Pressable>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      {showTaskConfig ? (
+                        <View style={styles.sideRailCard}>
+                          <Text style={styles.sideRailTitle}>Edit task</Text>
                           <TextInput
                             style={styles.input}
                             value={taskDraft.title}
@@ -1640,8 +1909,9 @@ export default function App() {
                             style={styles.input}
                             value={taskDraft.contextLink}
                             onChangeText={(value) => setTaskDraft((current) => ({ ...current, contextLink: value }))}
-                            placeholder="Context link"
+                            placeholder="Context link or note"
                             placeholderTextColor="#7d8597"
+                            multiline
                           />
                           <View style={styles.compactControlsRow}>
                             <ChoiceGroup
@@ -1689,122 +1959,8 @@ export default function App() {
                           </Pressable>
                         </View>
                       ) : null}
-
-                      {showCommentComposer && activityView === "comments" ? (
-                        <View style={styles.inlinePanel}>
-                          <View style={styles.inlinePanelHeader}>
-                            <Text style={styles.inlinePanelTitle}>Add comment</Text>
-                            <Text style={styles.inlinePanelText}>Post a note, decision, or attachment.</Text>
-                          </View>
-                          <TextInput
-                            style={styles.commentComposerInput}
-                            value={commentDraft}
-                            onChangeText={setCommentDraft}
-                            placeholder="Write a note"
-                            placeholderTextColor="#7d8597"
-                            multiline
-                          />
-                          <View style={styles.commentToolbar}>
-                            <Pressable style={styles.toolbarButton} onPress={() => void attachFile()}>
-                              <Feather name="paperclip" size={14} color="#dbe1ec" />
-                              <Text style={styles.toolbarButtonText}>Attach file</Text>
-                            </Pressable>
-                            <Pressable
-                              style={[styles.primaryButtonSmall, commentSubmitting ? styles.buttonDisabled : null]}
-                              onPress={() => void addComment()}
-                              disabled={commentSubmitting}
-                            >
-                              <Text style={styles.primaryButtonText}>{commentSubmitting ? "Posting..." : "Post Comment"}</Text>
-                            </Pressable>
-                          </View>
-                          {uploadDraft ? (
-                            <Text style={styles.uploadHint}>
-                              Selected: {uploadDraft.filename} ({formatBytes(uploadDraft.size_bytes)})
-                            </Text>
-                          ) : null}
-                          {uploadError ? <Text style={styles.inlineError}>{uploadError}</Text> : null}
-                        </View>
-                      ) : null}
-
-                      <View style={styles.commentStack}>
-                        {(activityView === "comments" ? noteComments : logComments).length ? (
-                          (activityView === "comments" ? noteComments : logComments).map((comment) => {
-                            const rawMetadata = formatMetadataJson(comment.metadata);
-                            const showPayload = expandedLogIds.includes(comment.id);
-
-                            return (
-                            <View key={comment.id} style={styles.commentCard}>
-                              <View style={styles.commentHeader}>
-                                <View style={[styles.authorBadge, comment.author === "AI" ? styles.authorBadgeAi : styles.authorBadgeHuman]}>
-                                  <Text style={styles.authorBadgeText}>{comment.author}</Text>
-                                </View>
-                                <Text style={styles.commentType}>{comment.type}</Text>
-                                <Text style={styles.commentTimestamp}>{formatTimestamp(comment.timestamp)}</Text>
-                              </View>
-                              <Text style={styles.commentBody}>{comment.message}</Text>
-
-                              {comment.attachmentLink ? (
-                                <View style={styles.attachmentCard}>
-                                  <Text style={styles.attachmentTitle}>{comment.attachmentMeta?.filename ?? comment.attachmentLink}</Text>
-                                  <Text style={styles.attachmentMeta}>
-                                    {(comment.attachmentMeta?.mime_type ?? "application/octet-stream").toLowerCase()} · {formatBytes(comment.attachmentMeta?.size_bytes)}
-                                  </Text>
-                                  {comment.attachmentMeta?.uploaded_at ? (
-                                    <Text style={styles.attachmentMeta}>Uploaded {formatTimestamp(comment.attachmentMeta.uploaded_at)}</Text>
-                                  ) : null}
-                                  {comment.attachmentMeta?.sha256 ? (
-                                    <Text style={styles.attachmentMeta}>SHA256 {shortHash(comment.attachmentMeta.sha256)}</Text>
-                                  ) : null}
-                                  {comment.attachmentMeta?.kind === "image" ? (
-                                    <Image source={{ uri: comment.attachmentLink }} style={styles.attachmentImage as ImageStyle} />
-                                  ) : null}
-                                  {comment.attachmentMeta?.kind === "video" ? (
-                                    <AttachmentVideoPreview
-                                      uri={comment.attachmentLink}
-                                      mimeType={comment.attachmentMeta?.mime_type}
-                                    />
-                                  ) : null}
-                                  {comment.attachmentMeta?.preview_text ? (
-                                    <View style={styles.previewCard}>
-                                      <Text style={styles.previewLabel}>Preview</Text>
-                                      <Text style={styles.previewText}>{comment.attachmentMeta.preview_text}</Text>
-                                    </View>
-                                  ) : null}
-                                  <Pressable style={styles.toolbarButton} onPress={() => void openLink(comment.attachmentLink ?? "") }>
-                                    <Feather name="external-link" size={14} color="#dbe1ec" />
-                                    <Text style={styles.toolbarButtonText}>Open attachment</Text>
-                                  </Pressable>
-                                </View>
-                              ) : null}
-                              {activityView === "logs" && rawMetadata ? (
-                                <View style={styles.logPayloadCard}>
-                                  <View style={styles.logPayloadHeader}>
-                                    <Text style={styles.previewLabel}>Payload</Text>
-                                    <Pressable style={styles.quietButton} onPress={() => toggleLogPayload(comment.id)}>
-                                      <Text style={styles.quietButtonText}>{showPayload ? "Hide raw" : "Show raw"}</Text>
-                                    </Pressable>
-                                  </View>
-                                  {showPayload ? <Text style={styles.logPayloadText}>{rawMetadata}</Text> : null}
-                                </View>
-                              ) : null}
-                            </View>
-                            );
-                          })
-                        ) : (
-                          <View style={styles.emptyStateCard}>
-                            <Text style={styles.emptyStateTitle}>
-                              {activityView === "comments" ? "No comments yet" : "No logs yet"}
-                            </Text>
-                            <Text style={styles.emptyStateText}>
-                              {activityView === "comments"
-                                ? "Human-facing notes, decisions, and artifacts will appear here."
-                                : "Detailed AI execution logs and payloads will appear here."}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
                     </View>
-                  </ScrollView>
+                  </View>
                 </View>
               ) : null}
             </View>
@@ -1916,6 +2072,46 @@ export default function App() {
                     disabled={workspaceBusy}
                   >
                     <Text style={styles.modalPrimaryButtonText}>{workspaceBusy ? "Creating..." : "Add workspace"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          <Modal
+            visible={Boolean(taskDeleteTarget)}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setTaskDeleteTarget(null)}
+          >
+            <View style={styles.modalScrim}>
+              <View style={styles.modalCardSmall}>
+                <View style={styles.modalHeader}>
+                  <View>
+                    <Text style={styles.modalTitle}>Delete Task</Text>
+                    <Text style={styles.modalSubtle}>This removes the task from the active queue and hides its thread.</Text>
+                  </View>
+                  <Pressable style={styles.iconButton} onPress={() => setTaskDeleteTarget(null)}>
+                    <Feather name="x" size={16} color="#cfd5e3" />
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalBody}>
+                  <Text style={styles.deleteConfirmText}>
+                    Delete <Text style={styles.deleteConfirmStrong}>{taskDeleteTarget?.title}</Text>?
+                  </Text>
+                </View>
+
+                <View style={styles.modalFooter}>
+                  <Pressable style={styles.modalGhostButton} onPress={() => setTaskDeleteTarget(null)}>
+                    <Text style={styles.modalGhostButtonText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.modalDangerButton, taskDeleting ? styles.buttonDisabled : null]}
+                    onPress={() => void deleteTask(taskDeleteTarget)}
+                    disabled={taskDeleting}
+                  >
+                    <Text style={styles.modalDangerButtonText}>{taskDeleting ? "Deleting..." : "Delete task"}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -2302,6 +2498,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700"
   },
+  toolbarDangerText: {
+    color: "#fecaca",
+    fontSize: 13,
+    fontWeight: "700"
+  },
   searchRow: {
     flexDirection: "row",
     paddingTop: 2
@@ -2503,48 +2704,176 @@ const styles = StyleSheet.create({
   },
   drawerScrim: {
     flex: 1,
-    backgroundColor: "rgba(4, 6, 10, 0.64)",
-    alignItems: "flex-end",
-    justifyContent: "flex-start"
+    backgroundColor: "rgba(4, 6, 10, 0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20
   },
   drawerBackdrop: {
     ...StyleSheet.absoluteFillObject
   },
   drawerPanel: {
     width: "100%",
-    maxWidth: 620,
-    height: "100%",
+    maxWidth: 1380,
+    height: "88%",
+    maxHeight: 940,
     backgroundColor: "#121419",
-    borderLeftWidth: 1,
-    borderLeftColor: "rgba(255,255,255,0.08)",
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
     shadowColor: "#000",
-    shadowOpacity: 0.36,
-    shadowRadius: 24,
+    shadowOpacity: 0.42,
+    shadowRadius: 32,
     shadowOffset: {
-      width: -8,
-      height: 0
+      width: 0,
+      height: 12
     },
     elevation: 20
   },
   drawerPanelMobile: {
     maxWidth: "100%",
-    borderLeftWidth: 0
+    height: "100%",
+    maxHeight: "100%",
+    borderRadius: 0,
+    borderWidth: 0
   },
   drawerHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
     gap: 12,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingHorizontal: 28,
+    paddingTop: 24,
+    paddingBottom: 20,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.07)",
-    backgroundColor: "#111318"
+    backgroundColor: "#101217"
+  },
+  drawerHeaderTrail: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    minWidth: 0
+  },
+  drawerWorkspaceLabel: {
+    color: "#7f879a",
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1.1
+  },
+  drawerWorkspaceDot: {
+    color: "#5f6779",
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  drawerWorkspaceMeta: {
+    color: "#d8deea",
+    fontSize: 14,
+    fontWeight: "600"
+  },
+  drawerHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+    justifyContent: "flex-end"
   },
   drawerScrollContent: {
     padding: 20,
     paddingBottom: 36
+  },
+  taskWorkspaceLayout: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "stretch",
+    minHeight: 0
+  },
+  taskWorkspaceLayoutSingle: {
+    flexDirection: "column"
+  },
+  taskWorkspaceMain: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: "#121419"
+  },
+  taskWorkspaceMainScroll: {
+    flex: 1
+  },
+  taskWorkspaceMainContent: {
+    paddingHorizontal: 28,
+    paddingTop: 28,
+    paddingBottom: 28,
+    gap: 22
+  },
+  taskWorkspaceSideRail: {
+    width: 330,
+    borderLeftWidth: 1,
+    borderLeftColor: "rgba(255,255,255,0.07)",
+    backgroundColor: "#16191f",
+    padding: 24,
+    gap: 16
+  },
+  taskWorkspaceSideRailSingle: {
+    width: "100%",
+    borderLeftWidth: 0,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.07)"
+  },
+  taskHero: {
+    gap: 18
+  },
+  taskHeroRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 16
+  },
+  taskHeroCheck: {
+    width: 36,
+    alignItems: "center",
+    paddingTop: 4
+  },
+  taskHeroBody: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0
+  },
+  taskHeroTitle: {
+    color: "#f8fafc",
+    fontSize: 38,
+    lineHeight: 44,
+    fontWeight: "800",
+    letterSpacing: -0.7
+  },
+  taskHeroDescription: {
+    color: "#b5bdd0",
+    fontSize: 18,
+    lineHeight: 28
+  },
+  taskHeroPlaceholder: {
+    color: "#7d8597",
+    fontSize: 17,
+    lineHeight: 26
+  },
+  taskHeroLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  taskHeroLinkText: {
+    color: "#dbe1ec",
+    fontSize: 14,
+    fontWeight: "700"
   },
   detailMetaRow: {
     flexDirection: "row",
@@ -2725,7 +3054,8 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   activityTabsRow: {
-    gap: 10
+    gap: 10,
+    paddingTop: 4
   },
   activityTabs: {
     flexDirection: "row",
@@ -2775,7 +3105,7 @@ const styles = StyleSheet.create({
   },
   commentCard: {
     borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.03)",
+    backgroundColor: "rgba(255,255,255,0.025)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     padding: 14,
@@ -2904,6 +3234,146 @@ const styles = StyleSheet.create({
   emptyStateText: {
     color: "#9ea6b8",
     lineHeight: 22
+  },
+  composerDock: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.07)",
+    backgroundColor: "#101216",
+    paddingHorizontal: 28,
+    paddingTop: 14,
+    paddingBottom: 18,
+    gap: 10
+  },
+  composerDockRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 14
+  },
+  composerAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#6fb347",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4
+  },
+  composerAvatarText: {
+    color: "#f8fafc",
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  composerInputShell: {
+    flex: 1,
+    minHeight: 58,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "#171a20",
+    paddingLeft: 16,
+    paddingRight: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12
+  },
+  composerInput: {
+    flex: 1,
+    minHeight: 28,
+    maxHeight: 112,
+    color: "#f8fafc",
+    fontSize: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    textAlignVertical: "center"
+  },
+  composerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingBottom: 2
+  },
+  composerIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)"
+  },
+  composerSubmitButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7a322b"
+  },
+  composerDockMuted: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.07)",
+    backgroundColor: "#101216",
+    paddingHorizontal: 28,
+    paddingVertical: 18
+  },
+  composerDockMutedText: {
+    color: "#8b92a6",
+    fontSize: 13,
+    lineHeight: 20
+  },
+  sideRailCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    padding: 18,
+    gap: 14
+  },
+  sideRailCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12
+  },
+  sideRailTitle: {
+    color: "#f8fafc",
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  sideRailItem: {
+    gap: 5,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)"
+  },
+  sideRailLabel: {
+    color: "#7d8597",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.9,
+    textTransform: "uppercase"
+  },
+  sideRailValue: {
+    color: "#e5e7eb",
+    fontSize: 15,
+    lineHeight: 22
+  },
+  sideRailValueAccent: {
+    color: "#ffb2a8"
+  },
+  sideRailLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start"
+  },
+  sideRailLinkText: {
+    color: "#dbe1ec",
+    fontSize: 14,
+    fontWeight: "700"
   },
   modalScrim: {
     flex: 1,

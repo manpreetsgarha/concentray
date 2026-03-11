@@ -99,6 +99,12 @@ Read-only queue inspection still uses:
 concentray task get-next --assignee ai --status pending,in_progress --json
 ```
 
+Delete a task:
+
+```bash
+concentray task delete task-123 --json
+```
+
 Structured verbose log example:
 
 ```bash

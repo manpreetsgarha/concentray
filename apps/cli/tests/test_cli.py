@@ -223,6 +223,59 @@ def test_context_export_contains_schema(tmp_path: Path) -> None:
     assert payload["context"]["schema_version"] == "1.0"
 
 
+def test_task_delete_soft_deletes_task_and_comments(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    seed_store(store)
+    seeded = json.loads(store.read_text())
+    seeded["comments"] = [
+        {
+            "Comment_ID": "comment-1",
+            "Task_ID": "task-1",
+            "Author": "AI",
+            "Timestamp": "2026-03-03T10:01:00+00:00",
+            "Message": "started work",
+            "Type": "log",
+            "Attachment_Link": None,
+            "Metadata": None,
+            "Created_At": "2026-03-03T10:01:00+00:00",
+            "Updated_At": "2026-03-03T10:01:00+00:00",
+            "Version": 1,
+            "Deleted_At": None,
+        }
+    ]
+    store.write_text(json.dumps(seeded))
+
+    env = {
+        "TM_PROVIDER": "local_json",
+        "TM_LOCAL_STORE": str(store),
+        "TM_UPDATED_BY": "AI",
+    }
+
+    result = runner.invoke(
+        app,
+        ["task", "delete", "task-1", "--json"],
+        env={**os.environ, **env},
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["task"]["Deleted_At"] is not None
+
+    result = runner.invoke(
+        app,
+        ["task", "get", "task-1", "--json"],
+        env={**os.environ, **env},
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["task"] is None
+
+    saved = json.loads(store.read_text())
+    assert saved["tasks"][0]["Deleted_At"] is not None
+    assert saved["comments"][0]["Deleted_At"] is not None
+
+
 def test_comment_add_accepts_metadata(tmp_path: Path) -> None:
     store = tmp_path / "store.json"
     seed_store(store)

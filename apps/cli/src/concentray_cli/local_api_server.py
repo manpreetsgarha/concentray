@@ -633,6 +633,23 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        if path.startswith("/tasks/"):
+            task_id, suffix = self._route_task_path(path)
+            if not task_id or suffix is not None:
+                self._send(404, {"ok": False, "error": "Not found"})
+                return
+
+            deleted = self._provider().delete_task(
+                task_id,
+                updated_by=UpdatedBy.SYSTEM,
+            )
+            if not deleted:
+                self._send(404, {"ok": False, "error": f"Task '{task_id}' not found"})
+                return
+
+            self._send(200, {"ok": True, "task": deleted.model_dump(by_alias=True)})
+            return
+
         if path.startswith("/workspaces/"):
             workspace_name = unquote(path.split("/workspaces/", 1)[1]).strip()
             if not workspace_name:

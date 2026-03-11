@@ -11,6 +11,9 @@ from concentray_cli.workspace_store import get_selected_workspace, load_workspac
 
 
 def project_root() -> Path:
+    override = (os.getenv("CONCENTRAY_ROOT", "") or os.getenv("TM_PROJECT_ROOT", "")).strip()
+    if override:
+        return Path(override).expanduser().resolve()
     return Path(__file__).resolve().parents[4]
 
 

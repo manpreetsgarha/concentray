@@ -53,6 +53,9 @@ def emit(payload: Dict[str, object], as_json: bool) -> None:
 
 
 def project_root() -> Path:
+    override = (os.getenv("CONCENTRAY_ROOT", "") or os.getenv("TM_PROJECT_ROOT", "")).strip()
+    if override:
+        return Path(override).expanduser().resolve()
     # /.../apps/cli/src/concentray_cli/main.py -> project root is 4 parents up
     return Path(__file__).resolve().parents[4]
 
@@ -166,7 +169,9 @@ def build_background_web_bundle(api_url: str, output_dir: Path, log_path: Path) 
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     env = dict(os.environ)
+    env["EXPO_NO_DOTENV"] = "1"
     env["EXPO_PUBLIC_LOCAL_API_URL"] = api_url
+    env.setdefault("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", os.getenv("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", "25"))
     env.setdefault("BROWSER", "none")
 
     process = subprocess.run(
@@ -811,6 +816,26 @@ def task_update(
     )
 
 
+@task_app.command("delete")
+def task_delete(
+    task_id: str,
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    provider = make_provider()
+    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "AI"))
+    deleted = provider.delete_task(task_id, updated_by=updated_by)
+    if not deleted:
+        raise typer.BadParameter(f"Task '{task_id}' not found")
+
+    emit(
+        {
+            "ok": True,
+            "task": deleted.model_dump(by_alias=True),
+        },
+        as_json,
+    )
+
+
 @comment_app.command("add")
 def comment_add(
     task_id: str,
@@ -1151,7 +1176,9 @@ def start_workspace(
     if web:
         client_dir = project_root() / "apps" / "client"
         env = dict(os.environ)
+        env["EXPO_NO_DOTENV"] = "1"
         env.setdefault("EXPO_PUBLIC_LOCAL_API_URL", f"http://{url_host}:{resolved_port}")
+        env.setdefault("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", os.getenv("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", "25"))
         try:
             web_cmd = ["pnpm", "--dir", str(client_dir), "web"]
             if lan:

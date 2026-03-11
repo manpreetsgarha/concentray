@@ -172,6 +172,52 @@ class LocalJsonProvider(Provider):
             self._save(store)
             return task
 
+    def delete_task(self, task_id: str, *, updated_by: UpdatedBy) -> Optional[Task]:
+        with self._store_lock():
+            store = self._load()
+            now = iso_now()
+            deleted_task: Optional[Task] = None
+
+            for idx, task in enumerate(store.tasks):
+                if task.task_id != task_id or task.deleted_at:
+                    continue
+
+                field_clock = dict(task.field_clock)
+                field_clock["deleted_at"] = now
+                field_clock["worker_id"] = now
+                field_clock["claimed_at"] = now
+
+                deleted_task = task.model_copy(
+                    update={
+                        "deleted_at": now,
+                        "worker_id": None,
+                        "claimed_at": None,
+                        "updated_at": now,
+                        "updated_by": updated_by,
+                        "version": task.version + 1,
+                        "field_clock": field_clock,
+                    }
+                )
+                store.tasks[idx] = deleted_task
+                break
+
+            if deleted_task is None:
+                return None
+
+            for idx, comment in enumerate(store.comments):
+                if comment.task_id != task_id or comment.deleted_at:
+                    continue
+                store.comments[idx] = comment.model_copy(
+                    update={
+                        "deleted_at": now,
+                        "updated_at": now,
+                        "version": comment.version + 1,
+                    }
+                )
+
+            self._save(store)
+            return deleted_task
+
     def add_comment(self, comment: Comment) -> Comment:
         with self._store_lock():
             store = self._load()

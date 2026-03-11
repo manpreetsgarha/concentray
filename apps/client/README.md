@@ -20,14 +20,17 @@ export TM_LOCAL_STORE=.data/store.json
 concentray serve-local-api --host 127.0.0.1 --port 8787
 ```
 
-2. Set this in `apps/client/.env`:
+2. For a manual Expo run, export the client env before starting web:
 
 ```bash
-EXPO_PUBLIC_LOCAL_API_URL=http://127.0.0.1:8787
-EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB=25
+export EXPO_PUBLIC_LOCAL_API_URL=http://127.0.0.1:8787
+export EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB=25
+pnpm web
 ```
 
 Now the web app and terminal agent both read/write the same local store.
+
+When using `./scripts/concentray start`, the CLI injects these variables automatically. Do not commit a project-local `apps/client/.env` with a fixed API URL.
 
 Attachment types supported in the comment thread:
 

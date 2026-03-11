@@ -56,6 +56,8 @@ export interface Task {
   aiUrgency?: number;
   inputRequest?: InputRequest | null;
   inputResponse?: Record<string, unknown> | null;
+  workerId?: string;
+  claimedAt?: string;
   updatedAt: string;
 }
 

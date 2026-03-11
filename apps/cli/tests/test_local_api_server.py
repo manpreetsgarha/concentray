@@ -141,3 +141,71 @@ def test_local_api_workspace_delete_reassigns_active_and_rejects_last(tmp_path: 
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_local_api_task_delete_hides_task_and_thread(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        default_store = tmp_path / "default.json"
+
+        status, payload = _request(
+            base_url,
+            "POST",
+            "/workspaces",
+            {"name": "default", "store": str(default_store), "set_active": True},
+        )
+        assert status == 201
+
+        status, payload = _request(
+            base_url,
+            "POST",
+            "/tasks",
+            {"title": "Delete me", "created_by": "Human", "assignee": "AI", "ai_urgency": 3},
+        )
+        assert status == 201
+        task_id = payload["task"]["Task_ID"]
+
+        status, payload = _request(
+            base_url,
+            "POST",
+            f"/tasks/{task_id}/comments",
+            {"author": "AI", "type": "log", "message": "transient trace"},
+        )
+        assert status == 201
+
+        status, payload = _request(base_url, "DELETE", f"/tasks/{task_id}")
+        assert status == 200
+        assert payload["task"]["Deleted_At"] is not None
+
+        status, payload = _request(base_url, "GET", "/tasks")
+        assert status == 200
+        assert payload["tasks"] == []
+
+        try:
+            _request(base_url, "GET", f"/tasks/{task_id}")
+            assert False, "Expected deleted task to be hidden"
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            assert exc.code == 404
+            assert "not found" in payload["error"].lower()
+
+        saved = json.loads(default_store.read_text())
+        assert saved["tasks"][0]["Deleted_At"] is not None
+        assert saved["comments"][0]["Deleted_At"] is not None
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

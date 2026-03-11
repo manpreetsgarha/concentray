@@ -152,6 +152,7 @@ Open the URL printed by `start`.
 The UI lets you:
 - switch workspaces
 - create tasks
+- delete tasks with confirmation
 - mark tasks done
 - inspect task details
 - keep operator-facing comments separate from verbose AI logs
@@ -262,6 +263,12 @@ Update a task:
 
 ```bash
 ./scripts/concentray task update <task_id> --status blocked --assignee human --urgency 5 --json
+```
+
+Delete a task:
+
+```bash
+./scripts/concentray task delete <task_id> --json
 ```
 
 Add a comment:
@@ -496,6 +503,10 @@ Useful variables:
 - `TM_WORKSPACE=default`
 - `EXPO_PUBLIC_LOCAL_API_URL=http://127.0.0.1:8787`
 - `EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB=25`
+
+Notes:
+- `./scripts/concentray start` injects the Expo client env automatically.
+- do not commit a fixed `apps/client/.env` with a hardcoded API URL; use env vars or an untracked local file for manual Expo runs.
 
 ## Testing
 
