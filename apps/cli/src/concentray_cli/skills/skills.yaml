@@ -1,0 +1,3 @@
+skills:
+  echo_task:
+    command: ["bash", "-lc", "echo Running skill for $TASK_ID"]

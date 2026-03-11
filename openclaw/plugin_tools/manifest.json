@@ -1,0 +1,54 @@
+{
+  "version": "1.0",
+  "tools": [
+    {
+      "name": "task_get_next",
+      "description": "Get next task for assignee and statuses",
+      "input_schema": "../../packages/contracts/openclaw-tools/v1/task_get_next.input.schema.json",
+      "output_schema": "../../packages/contracts/openclaw-tools/v1/task_get_next.output.schema.json",
+      "runner": "bash openclaw/plugin_tools/run_tool.sh task_get_next"
+    },
+    {
+      "name": "task_claim_next",
+      "description": "Claim the next eligible task for a worker",
+      "input_schema": "../../packages/contracts/openclaw-tools/v1/task_claim_next.input.schema.json",
+      "output_schema": "../../packages/contracts/openclaw-tools/v1/task_claim_next.output.schema.json",
+      "runner": "bash openclaw/plugin_tools/run_tool.sh task_claim_next"
+    },
+    {
+      "name": "task_get",
+      "description": "Get a task and optional comments",
+      "input_schema": "../../packages/contracts/openclaw-tools/v1/task_get.input.schema.json",
+      "output_schema": "../../packages/contracts/openclaw-tools/v1/task_get.output.schema.json",
+      "runner": "bash openclaw/plugin_tools/run_tool.sh task_get"
+    },
+    {
+      "name": "task_update",
+      "description": "Update task fields",
+      "input_schema": "../../packages/contracts/openclaw-tools/v1/task_update.input.schema.json",
+      "output_schema": "../../packages/contracts/openclaw-tools/v1/task_update.output.schema.json",
+      "runner": "bash openclaw/plugin_tools/run_tool.sh task_update"
+    },
+    {
+      "name": "comment_add",
+      "description": "Add comment to a task",
+      "input_schema": "../../packages/contracts/openclaw-tools/v1/comment_add.input.schema.json",
+      "output_schema": "../../packages/contracts/openclaw-tools/v1/comment_add.output.schema.json",
+      "runner": "bash openclaw/plugin_tools/run_tool.sh comment_add"
+    },
+    {
+      "name": "context_export",
+      "description": "Export task context envelope",
+      "input_schema": "../../packages/contracts/openclaw-tools/v1/context_export.input.schema.json",
+      "output_schema": "../../packages/contracts/openclaw-tools/v1/context_export.output.schema.json",
+      "runner": "bash openclaw/plugin_tools/run_tool.sh context_export"
+    },
+    {
+      "name": "skill_run",
+      "description": "Run allowlisted local skill",
+      "input_schema": "../../packages/contracts/openclaw-tools/v1/skill_run.input.schema.json",
+      "output_schema": "../../packages/contracts/openclaw-tools/v1/skill_run.output.schema.json",
+      "runner": "bash openclaw/plugin_tools/run_tool.sh skill_run"
+    }
+  ]
+}

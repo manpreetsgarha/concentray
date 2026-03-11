@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_get_next.output.v1",
+  "type": "object",
+  "properties": {
+    "ok": { "type": "boolean" },
+    "task": { "type": ["object", "null"] }
+  },
+  "required": ["ok", "task"],
+  "additionalProperties": true
+}

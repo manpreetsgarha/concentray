@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_update.input.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["pending", "in_progress", "blocked", "done"] },
+    "assignee": { "type": "string", "enum": ["ai", "human"] },
+    "urgency": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "worker_id": { "type": ["string", "null"], "minLength": 1 },
+    "clear_worker": { "type": "boolean" },
+    "input_request": { "type": ["object", "null"] }
+  },
+  "required": ["task_id"]
+}

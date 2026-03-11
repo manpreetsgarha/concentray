@@ -1,0 +1,4 @@
+interface:
+  display_name: "Concentray Operator"
+  short_description: "Run agent tasks through Concentray"
+  default_prompt: "Use $concentray-task-operator to claim and work through Concentray tasks from the local CLI."

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skill_run.input.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "skill_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "args": { "type": "array", "items": { "type": "string" }, "default": [] }
+  },
+  "required": ["skill_id", "task_id"]
+}

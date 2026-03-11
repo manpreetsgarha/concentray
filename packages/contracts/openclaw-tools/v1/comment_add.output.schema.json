@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "comment_add.output.v1",
+  "type": "object",
+  "properties": {
+    "ok": { "type": "boolean" },
+    "comment": { "type": "object" }
+  },
+  "required": ["ok", "comment"],
+  "additionalProperties": true
+}

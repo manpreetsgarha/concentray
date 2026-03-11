@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "skill_run.output.v1",
+  "type": "object",
+  "properties": {
+    "ok": { "type": "boolean" },
+    "exit_code": { "type": "integer" },
+    "stdout": { "type": "string" },
+    "stderr": { "type": "string" }
+  },
+  "required": ["ok", "exit_code", "stdout", "stderr"],
+  "additionalProperties": true
+}

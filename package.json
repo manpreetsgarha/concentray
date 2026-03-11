@@ -1,0 +1,13 @@
+{
+  "name": "concentray",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@8.6.12",
+  "scripts": {
+    "bootstrap": "bash scripts/bootstrap/bootstrap_all.sh",
+    "bootstrap:openclaw": "bash scripts/bootstrap/bootstrap_openclaw.sh",
+    "cli": "bash scripts/concentray",
+    "cli:compat": "bash scripts/ctray",
+    "test": "pnpm --filter @concentray/client-data test && cd apps/cli && python3.11 -m pytest -q"
+  }
+}

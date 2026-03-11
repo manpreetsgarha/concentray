@@ -1,0 +1,19 @@
+version = "1"
+
+[paths]
+allowed = [
+  "__REPO_ROOT__",
+  "__REPO_ROOT__/apps/cli"
+]
+
+[commands]
+allowed_prefixes = [
+  ["python3", "-m", "concentray_cli.main"],
+  ["python3.11", "-m", "concentray_cli.main"],
+  ["bash", "openclaw/plugin_tools/run_tool.sh"],
+  ["__REPO_ROOT__/scripts/concentray"],
+  ["bash", "__REPO_ROOT__/scripts/concentray"]
+]
+
+[skills]
+allowlist_file = "__REPO_ROOT__/apps/cli/src/concentray_cli/skills/skills.yaml"

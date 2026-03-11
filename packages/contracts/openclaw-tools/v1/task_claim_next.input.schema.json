@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_claim_next.input.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "worker_id": { "type": "string", "minLength": 1 },
+    "assignee": { "type": "string", "enum": ["ai", "human"] },
+    "status": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["pending", "in_progress", "blocked", "done"] },
+      "minItems": 1
+    },
+    "lease_seconds": { "type": "integer", "minimum": 1 }
+  }
+}

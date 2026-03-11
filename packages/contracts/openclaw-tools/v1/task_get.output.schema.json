@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_get.output.v1",
+  "type": "object",
+  "properties": {
+    "ok": { "type": "boolean" },
+    "task": { "type": ["object", "null"] },
+    "comments": { "type": "array", "items": { "type": "object" } }
+  },
+  "required": ["ok", "task", "comments"],
+  "additionalProperties": true
+}
