@@ -1,4 +1,4 @@
-import type { Actor, TaskStatus } from "@concentray/contracts";
+import type { Actor, TaskExecutionMode, TaskStatus } from "@concentray/contracts";
 
 export interface Task {
   id: string;
@@ -6,6 +6,7 @@ export interface Task {
   status: TaskStatus;
   createdBy: Actor;
   assignee: Actor;
+  executionMode: TaskExecutionMode;
   contextLink?: string;
   aiUrgency?: number;
   inputRequest?: Record<string, unknown> | null;

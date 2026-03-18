@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Iterable, List, Optional
 
-from concentray_cli.models import Comment, Task, TaskStatus, UpdatedBy
+from concentray_cli.models import Comment, Task, TaskExecutionMode, TaskStatus, UpdatedBy
 
 
 class Provider(ABC):
@@ -17,6 +17,7 @@ class Provider(ABC):
         assignee: str,
         statuses: Iterable[TaskStatus],
         *,
+        execution_modes: Optional[Iterable[TaskExecutionMode]] = None,
         worker_id: Optional[str] = None,
         lease_seconds: int = 1800,
     ) -> Optional[Task]:
@@ -29,6 +30,7 @@ class Provider(ABC):
         worker_id: str,
         assignee: str,
         statuses: Iterable[TaskStatus],
+        execution_modes: Optional[Iterable[TaskExecutionMode]] = None,
         updated_by: UpdatedBy,
         lease_seconds: int = 1800,
     ) -> Optional[Task]:

@@ -19,7 +19,7 @@ import {
 
 import { BlockerCard } from "./src/BlockerCard";
 import { seedComments, seedTasks, seedWorkspaces } from "./src/mockData";
-import type { Actor, Comment, Task, TaskStatus, WorkspaceSummary } from "./src/types";
+import type { Actor, Comment, Task, TaskExecutionMode, TaskStatus, WorkspaceSummary } from "./src/types";
 
 interface WireTask {
   Task_ID: string;
@@ -27,6 +27,7 @@ interface WireTask {
   Status: string;
   Created_By: string;
   Assignee: string;
+  Execution_Mode?: string | null;
   Context_Link?: string | null;
   AI_Urgency?: number;
   Input_Request?: Record<string, unknown> | null;
@@ -72,6 +73,7 @@ interface TaskDraft {
   status: TaskStatus;
   createdBy: Actor;
   assignee: Actor;
+  executionMode: TaskExecutionMode;
   aiUrgency: number;
   contextLink: string;
 }
@@ -84,9 +86,16 @@ interface ChoiceOption {
 type ActivityView = "comments" | "logs";
 
 function workspaceAccent(name: string): string {
-  const palette = ["#f97316", "#10b981", "#38bdf8", "#f59e0b", "#e879f9", "#22c55e"];
+  const palette = ["#00d4aa", "#5b8def", "#a78bfa", "#f59e0b", "#f472b6", "#34d399"];
   const hash = Array.from(name).reduce((total, char) => total + char.charCodeAt(0), 0);
-  return palette[hash % palette.length] ?? "#f97316";
+  return palette[hash % palette.length] ?? "#00d4aa";
+}
+
+function statusBarStyle(status: TaskStatus) {
+  if (status === "Blocked") return styles.statusBarBlocked;
+  if (status === "In Progress") return styles.statusBarInProgress;
+  if (status === "Done") return styles.statusBarDone;
+  return styles.statusBarPending;
 }
 
 function formatBytes(value?: number): string {
@@ -175,13 +184,29 @@ function normalizeActor(raw: string): Actor {
   return raw.toLowerCase() === "ai" ? "AI" : "Human";
 }
 
+function normalizeExecutionMode(raw: string | null | undefined, assignee: Actor): TaskExecutionMode {
+  if ((raw ?? "").toLowerCase() === "session") {
+    return "Session";
+  }
+  if ((raw ?? "").toLowerCase() === "autonomous") {
+    return "Autonomous";
+  }
+  return assignee === "Human" ? "Session" : "Autonomous";
+}
+
+function executionModeToWire(mode: TaskExecutionMode): string {
+  return mode.toLowerCase();
+}
+
 function toTask(wire: WireTask): Task {
+  const assignee = normalizeActor(wire.Assignee);
   return {
     id: wire.Task_ID,
     title: wire.Title,
     status: normalizeStatus(wire.Status),
     createdBy: normalizeActor(wire.Created_By),
-    assignee: normalizeActor(wire.Assignee),
+    assignee,
+    executionMode: normalizeExecutionMode(wire.Execution_Mode, assignee),
     contextLink: wire.Context_Link ?? undefined,
     aiUrgency: wire.AI_Urgency,
     inputRequest: (wire.Input_Request as Task["inputRequest"]) ?? null,
@@ -233,6 +258,7 @@ function createTaskDraft(task: Task | null): TaskDraft {
     status: task?.status ?? "Pending",
     createdBy: task?.createdBy ?? "Human",
     assignee: task?.assignee ?? "AI",
+    executionMode: task?.executionMode ?? "Autonomous",
     aiUrgency: task?.aiUrgency ?? 3,
     contextLink: task?.contextLink ?? ""
   };
@@ -315,6 +341,7 @@ function buildDemoWorkspaces(): DemoWorkspaceRecord[] {
     status: "Pending",
     createdBy: "Human",
     assignee: "AI",
+    executionMode: "Autonomous",
     aiUrgency: 4,
     contextLink: "https://example.com/workspaces/motion-lab/brief",
     inputRequest: null,
@@ -351,6 +378,7 @@ function LogoMark() {
       <View style={styles.logoMarkRingOuter} />
       <View style={styles.logoMarkRingInner} />
       <View style={styles.logoMarkCore} />
+      <View style={styles.logoMarkPulse} />
     </View>
   );
 }
@@ -409,7 +437,7 @@ function WorkspaceCard(props: {
           onPress={() => onDelete()}
           disabled={busy}
         >
-          <Feather name="trash-2" size={14} color="#8f98ad" />
+          <Feather name="trash-2" size={13} color="#526080" />
         </Pressable>
       ) : null}
     </View>
@@ -481,12 +509,13 @@ function TaskListItem(props: {
   const strike = task.status === "Done";
   return (
     <View style={[styles.taskCard, selected ? styles.taskCardSelected : null]}>
+      <View style={[styles.taskStatusBar, statusBarStyle(task.status)]} />
       <Pressable
         style={[styles.taskCheckButton, strike ? styles.taskCheckButtonDone : null, busy ? styles.buttonDisabled : null]}
         onPress={onToggleDone}
         disabled={busy}
       >
-        <Feather name={strike ? "check-circle" : "circle"} size={18} color={strike ? "#9fb0c7" : "#dbe1ec"} />
+        <Feather name={strike ? "check-circle" : "circle"} size={16} color={strike ? "#526080" : "#8494b2"} />
       </Pressable>
       <Pressable style={styles.taskCardBody} onPress={onPress}>
         <View style={styles.taskCardHeader}>
@@ -499,11 +528,11 @@ function TaskListItem(props: {
           >
             {task.title}
           </Text>
-          {task.inputRequest ? <Text style={styles.taskBlockedHint}>Input</Text> : null}
+          {task.inputRequest ? <Text style={styles.taskBlockedHint}>Blocked</Text> : null}
         </View>
         <View style={styles.taskMetaRow}>
           <Text style={styles.taskCardMeta}>
-            {task.assignee} · {task.status}
+            {task.assignee} · {task.executionMode} · {task.status}
           </Text>
           <Text style={styles.taskTimestamp}>{formatTimestamp(task.updatedAt)}</Text>
         </View>
@@ -557,6 +586,7 @@ export default function App() {
   const [newTitle, setNewTitle] = useState("");
   const [newContextLink, setNewContextLink] = useState("");
   const [newAssignee, setNewAssignee] = useState<Actor>("AI");
+  const [newExecutionMode, setNewExecutionMode] = useState<TaskExecutionMode>("Autonomous");
   const [newCreatedBy, setNewCreatedBy] = useState<Actor>("Human");
   const [newUrgency, setNewUrgency] = useState(3);
   const [commentDraft, setCommentDraft] = useState("");
@@ -589,6 +619,20 @@ export default function App() {
   const uploadLimitBytes = Math.round(uploadLimitMb * 1024 * 1024);
   const sharedMode = Boolean(sharedApiUrl);
   const collapsedSidebar = sidebarCollapsed && !singleColumn;
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const doc = (globalThis as { document?: Document }).document;
+    if (!doc) return;
+    if (doc.querySelector('link[href*="Plus+Jakarta+Sans"]')) return;
+    const link = doc.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap";
+    doc.head.appendChild(link);
+    const style = doc.createElement("style");
+    style.textContent = "* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; } ::selection { background: rgba(0,212,170,0.25); color: #f0f4fa; }";
+    doc.head.appendChild(style);
+  }, []);
 
   const activeDemoWorkspace = useMemo(
     () => demoWorkspaces.find((workspace) => workspace.summary.active) ?? demoWorkspaces[0] ?? null,
@@ -645,6 +689,10 @@ export default function App() {
   const blockedCount = useMemo(() => tasks.filter((task) => task.status === "Blocked").length, [tasks]);
   const humanQueueCount = useMemo(() => tasks.filter((task) => task.assignee === "Human").length, [tasks]);
   const aiQueueCount = useMemo(() => tasks.filter((task) => task.assignee === "AI").length, [tasks]);
+  const autonomousQueueCount = useMemo(
+    () => tasks.filter((task) => task.assignee === "AI" && task.executionMode === "Autonomous").length,
+    [tasks]
+  );
 
   const taskDraftDirty = useMemo(() => {
     if (!selectedTask) {
@@ -655,6 +703,7 @@ export default function App() {
       taskDraft.status !== selectedTask.status ||
       taskDraft.createdBy !== selectedTask.createdBy ||
       taskDraft.assignee !== selectedTask.assignee ||
+      taskDraft.executionMode !== selectedTask.executionMode ||
       taskDraft.aiUrgency !== (selectedTask.aiUrgency ?? 3) ||
       taskDraft.contextLink !== (selectedTask.contextLink ?? "")
     );
@@ -1005,6 +1054,7 @@ export default function App() {
         status: "Pending",
         createdBy: newCreatedBy,
         assignee: newAssignee,
+        executionMode: newExecutionMode,
         contextLink: newContextLink.trim() || undefined,
         aiUrgency: newUrgency,
         inputRequest: null,
@@ -1039,6 +1089,7 @@ export default function App() {
           title,
           created_by: newCreatedBy,
           assignee: newAssignee,
+          execution_mode: executionModeToWire(newExecutionMode),
           context_link: newContextLink.trim() || null,
           ai_urgency: newUrgency
         })
@@ -1063,6 +1114,7 @@ export default function App() {
     newAssignee,
     newContextLink,
     newCreatedBy,
+    newExecutionMode,
     newTitle,
     newUrgency,
     sharedMode
@@ -1126,6 +1178,7 @@ export default function App() {
       status: statusToWire(taskDraft.status),
       created_by: taskDraft.createdBy,
       assignee: taskDraft.assignee,
+      execution_mode: executionModeToWire(taskDraft.executionMode),
       ai_urgency: taskDraft.aiUrgency,
       context_link: taskDraft.contextLink.trim() || null
     };
@@ -1149,6 +1202,7 @@ export default function App() {
                         status: taskDraft.status,
                         createdBy: taskDraft.createdBy,
                         assignee: taskDraft.assignee,
+                        executionMode: taskDraft.executionMode,
                         aiUrgency: taskDraft.aiUrgency,
                         contextLink: taskDraft.contextLink.trim() || undefined,
                         updatedAt: new Date().toISOString()
@@ -1426,17 +1480,17 @@ export default function App() {
                 </View>
 
                 <Pressable style={styles.iconButton} onPress={() => setSidebarCollapsed((current) => !current)}>
-                  <Feather name={collapsedSidebar ? "chevrons-right" : "chevrons-left"} size={16} color="#cfd5e3" />
+                  <Feather name={collapsedSidebar ? "chevrons-right" : "chevrons-left"} size={15} color="#526080" />
                 </Pressable>
               </View>
 
               <View style={styles.sidebarActionStack}>
                 <Pressable style={styles.sidebarPrimaryAction} onPress={() => setShowCreateTask(true)}>
-                  <Feather name="plus-circle" size={16} color="#ff8a78" />
+                  <Feather name="plus-circle" size={15} color="#00d4aa" />
                   {!collapsedSidebar ? <Text style={styles.sidebarPrimaryActionText}>Add task</Text> : null}
                 </Pressable>
                 <Pressable style={styles.sidebarSecondaryAction} onPress={() => setShowWorkspaceCreator(true)}>
-                  <Feather name="folder-plus" size={16} color="#cfd5e3" />
+                  <Feather name="folder-plus" size={15} color="#8494b2" />
                   {!collapsedSidebar ? <Text style={styles.sidebarSecondaryActionText}>Add workspace</Text> : null}
                 </Pressable>
               </View>
@@ -1477,6 +1531,10 @@ export default function App() {
                         <Text style={styles.headerStatLabel}>ai</Text>
                       </View>
                       <View style={styles.headerStat}>
+                        <Text style={styles.headerStatValue}>{autonomousQueueCount}</Text>
+                        <Text style={styles.headerStatLabel}>auto</Text>
+                      </View>
+                      <View style={styles.headerStat}>
                         <Text style={styles.headerStatValue}>{blockedCount}</Text>
                         <Text style={styles.headerStatLabel}>blocked</Text>
                       </View>
@@ -1485,11 +1543,11 @@ export default function App() {
 
                   <View style={styles.mainHeaderActions}>
                     <Pressable style={styles.toolbarButton} onPress={() => setShowQueueFilters((current) => !current)}>
-                      <Feather name="sliders" size={14} color="#dbe1ec" />
+                      <Feather name="sliders" size={13} color="#8494b2" />
                       <Text style={styles.toolbarButtonText}>{showQueueFilters ? "Hide filters" : "Filters"}</Text>
                     </Pressable>
                     <Pressable style={styles.toolbarButton} onPress={() => void refreshAll()} disabled={refreshing || !sharedMode}>
-                      <Feather name="rotate-cw" size={14} color="#dbe1ec" />
+                      <Feather name="rotate-cw" size={13} color="#8494b2" />
                       <Text style={styles.toolbarButtonText}>{refreshing ? "Syncing" : "Sync"}</Text>
                     </Pressable>
                   </View>
@@ -1501,7 +1559,7 @@ export default function App() {
                   value={taskQuery}
                   onChangeText={setTaskQuery}
                   placeholder="Search tasks"
-                  placeholderTextColor="#7a8090"
+                  placeholderTextColor="#3d4b68"
                 />
               </View>
 
@@ -1552,8 +1610,7 @@ export default function App() {
                     ))
                   ) : (
                     <View style={styles.emptyStateCardCompact}>
-                      <Text style={styles.emptyStateTitle}>No tasks</Text>
-                      <Text style={styles.emptyStateText}>Create one from the sidebar and it will show up here.</Text>
+                      <Text style={styles.emptyStateText}>No tasks yet. Create one from the sidebar.</Text>
                     </View>
                   )}
                 </View>
@@ -1575,398 +1632,222 @@ export default function App() {
                     <View style={styles.drawerHeaderTrail}>
                       <Text style={styles.drawerWorkspaceLabel}>{activeWorkspace?.name ?? "Workspace"}</Text>
                       <Text style={styles.drawerWorkspaceDot}>/</Text>
-                      <Text style={styles.drawerWorkspaceMeta}>
-                        {activityView === "comments" ? `${noteComments.length} comments` : `${logComments.length} logs`}
-                      </Text>
+                      <Text style={styles.drawerWorkspaceMeta}>Task</Text>
                     </View>
-
                     <View style={styles.drawerHeaderActions}>
                       <Pressable
                         style={[styles.summaryActionPill, statusUpdatingTaskId === selectedTask.id ? styles.buttonDisabled : null]}
                         onPress={() => void updateTaskStatus(selectedTask, selectedTask.status === "Done" ? "Pending" : "Done")}
                         disabled={statusUpdatingTaskId === selectedTask.id}
                       >
-                        <Feather name={selectedTask.status === "Done" ? "rotate-ccw" : "check"} size={13} color="#dbe1ec" />
+                        <Feather name={selectedTask.status === "Done" ? "rotate-ccw" : "check"} size={13} color="#8494b2" />
                         <Text style={styles.summaryActionPillText}>
-                          {statusUpdatingTaskId === selectedTask.id
-                            ? "Saving"
-                            : selectedTask.status === "Done"
-                              ? "Reopen"
-                              : "Mark done"}
+                          {statusUpdatingTaskId === selectedTask.id ? "..." : selectedTask.status === "Done" ? "Reopen" : "Done"}
                         </Text>
                       </Pressable>
                       <Pressable
-                        style={[styles.toolbarButton, taskDeleting ? styles.buttonDisabled : null]}
+                        style={[styles.iconButton, taskDeleting ? styles.buttonDisabled : null]}
                         onPress={() => setTaskDeleteTarget(selectedTask)}
                         disabled={taskDeleting}
                       >
-                        <Feather name="trash-2" size={14} color="#fca5a5" />
-                        <Text style={styles.toolbarDangerText}>Delete</Text>
+                        <Feather name="trash-2" size={13} color="#fda4af" />
                       </Pressable>
                       <Pressable style={styles.iconButton} onPress={closeTaskDrawer}>
-                        <Feather name="x" size={16} color="#cfd5e3" />
+                        <Feather name="x" size={15} color="#526080" />
                       </Pressable>
                     </View>
                   </View>
 
-                  <View style={[styles.taskWorkspaceLayout, singleColumn ? styles.taskWorkspaceLayoutSingle : null]}>
-                    <View style={styles.taskWorkspaceMain}>
-                      <ScrollView
-                        style={styles.taskWorkspaceMainScroll}
-                        contentContainerStyle={styles.taskWorkspaceMainContent}
-                        showsVerticalScrollIndicator={false}
-                      >
-                        <View style={styles.taskHero}>
-                          <View style={styles.taskHeroRow}>
-                            <View style={styles.taskHeroCheck}>
-                              <Feather
-                                name={selectedTask.status === "Done" ? "check-circle" : "circle"}
-                                size={28}
-                                color={selectedTask.status === "Done" ? "#9fb0c7" : "#dbe1ec"}
-                              />
-                            </View>
-                            <View style={styles.taskHeroBody}>
-                              <TextInput
-                                style={[styles.taskHeroTitle, styles.taskHeroTitleInput]}
-                                value={taskDraft.title}
-                                onChangeText={(value) => setTaskDraft((current) => ({ ...current, title: value }))}
-                                placeholder="Task title"
-                                placeholderTextColor="#7d8597"
-                                multiline
-                              />
-                              <View style={styles.taskHeroContextCard}>
-                                <TextInput
-                                  style={styles.taskHeroContextInput}
-                                  value={taskDraft.contextLink}
-                                  onChangeText={(value) => setTaskDraft((current) => ({ ...current, contextLink: value }))}
-                                  placeholder="Add a context note or paste a URL"
-                                  placeholderTextColor="#7d8597"
-                                  multiline
-                                />
-                                {selectedTaskContextIsUrl ? (
-                                  <Pressable style={styles.taskHeroLink} onPress={() => void openLink(selectedTaskContextValue)}>
-                                    <Feather name="external-link" size={15} color="#dbe1ec" />
-                                    <Text style={styles.taskHeroLinkText}>Open context link</Text>
-                                  </Pressable>
-                                ) : (
-                                  <Text style={styles.taskHeroContextHint}>
-                                    {selectedTaskContextValue
-                                      ? "Context note stays with the task for both human and AI."
-                                      : "Add a context note or URL here to sharpen the task."}
-                                  </Text>
-                                )}
-                              </View>
-                            </View>
-                          </View>
+                  <View style={styles.taskWorkspaceMain}>
+                    <ScrollView style={styles.taskWorkspaceMainScroll} contentContainerStyle={styles.detailBody} showsVerticalScrollIndicator={false}>
+                      <TextInput
+                        style={styles.drawerTitleInput}
+                        value={taskDraft.title}
+                        onChangeText={(value) => setTaskDraft((current) => ({ ...current, title: value }))}
+                        placeholder="Task title"
+                        placeholderTextColor="#3d4b68"
+                        multiline
+                      />
 
-                          <View style={styles.summaryPills}>
-                            <View style={styles.summaryPill}>
-                              <Text style={styles.summaryPillText}>{taskDraft.status}</Text>
-                            </View>
-                            <View style={styles.summaryPillMuted}>
-                              <Text style={styles.summaryPillMutedText}>{taskDraft.assignee} lane</Text>
-                            </View>
-                            <View style={styles.summaryPillMuted}>
-                              <Text style={styles.summaryPillMutedText}>Urgency {taskDraft.aiUrgency}/5</Text>
-                            </View>
-                            {selectedTask.workerId ? (
-                              <View style={styles.summaryPillMuted}>
-                                <Text style={styles.summaryPillMutedText}>{selectedTask.workerId}</Text>
-                              </View>
-                            ) : null}
-                          </View>
-
-                          <View style={styles.inlinePanel}>
-                            <View style={styles.inlinePanelHeader}>
-                              <View style={styles.inlinePanelHeaderRow}>
-                                <Text style={styles.inlinePanelTitle}>Task settings</Text>
-                                {taskDraftDirty ? (
-                                  <View style={styles.sideRailDirtyPill}>
-                                    <Text style={styles.sideRailDirtyPillText}>Unsaved</Text>
-                                  </View>
-                                ) : null}
-                              </View>
-                              <Text style={styles.inlinePanelText}>Edit task routing and urgency without leaving the task body.</Text>
-                            </View>
-                            <View style={styles.inlineEditorGrid}>
-                              <ChoiceGroup
-                                label="Status"
-                                value={taskDraft.status}
-                                onChange={(value) => setTaskDraft((current) => ({ ...current, status: value as TaskStatus }))}
-                                options={[
-                                  { label: "Pending", value: "Pending" },
-                                  { label: "In Progress", value: "In Progress" },
-                                  { label: "Blocked", value: "Blocked" },
-                                  { label: "Done", value: "Done" }
-                                ]}
-                              />
-                              <ChoiceGroup
-                                label="Created By"
-                                value={taskDraft.createdBy}
-                                onChange={(value) => setTaskDraft((current) => ({ ...current, createdBy: value as Actor }))}
-                                options={[
-                                  { label: "Human", value: "Human" },
-                                  { label: "AI", value: "AI" }
-                                ]}
-                              />
-                              <ChoiceGroup
-                                label="Assignee"
-                                value={taskDraft.assignee}
-                                onChange={(value) => setTaskDraft((current) => ({ ...current, assignee: value as Actor }))}
-                                options={[
-                                  { label: "Human", value: "Human" },
-                                  { label: "AI", value: "AI" }
-                                ]}
-                              />
-                              <ChoiceGroup
-                                label="Urgency"
-                                value={String(taskDraft.aiUrgency)}
-                                onChange={(value) => setTaskDraft((current) => ({ ...current, aiUrgency: Number(value) }))}
-                                options={[1, 2, 3, 4, 5].map((value) => ({ label: `${value}`, value: String(value) }))}
-                              />
-                            </View>
-                            <View style={styles.inlineEditorActions}>
-                              <Pressable
-                                style={[styles.quietButton, !taskDraftDirty || taskSaving ? styles.buttonDisabled : null]}
-                                onPress={() => setTaskDraft(createTaskDraft(selectedTask))}
-                                disabled={!taskDraftDirty || taskSaving}
-                              >
-                                <Text style={styles.quietButtonText}>Reset</Text>
-                              </Pressable>
-                              <Pressable
-                                style={[styles.primaryButtonSmall, !taskDraftDirty || taskSaving ? styles.buttonDisabled : null]}
-                                onPress={() => void saveTaskConfig()}
-                                disabled={!taskDraftDirty || taskSaving}
-                              >
-                                <Text style={styles.primaryButtonText}>{taskSaving ? "Saving..." : "Save Changes"}</Text>
-                              </Pressable>
-                            </View>
-                          </View>
+                      <View style={styles.metaGrid}>
+                        <Pressable
+                          style={styles.metaCellTappable}
+                          onPress={() => {
+                            const order: TaskStatus[] = ["Pending", "In Progress", "Blocked", "Done"];
+                            const next = order[(order.indexOf(taskDraft.status) + 1) % order.length];
+                            setTaskDraft((c) => ({ ...c, status: next }));
+                          }}
+                        >
+                          <Text style={styles.metaCellLabel}>Status</Text>
+                          <View style={[styles.metaStatusDot, statusBarStyle(taskDraft.status)]} />
+                          <Text style={styles.metaCellValue}>{taskDraft.status}</Text>
+                          <Feather name="chevron-right" size={10} color="#3d4b68" />
+                        </Pressable>
+                        <Pressable
+                          style={styles.metaCellTappable}
+                          onPress={() => {
+                            const next = taskDraft.assignee === "Human" ? "AI" : "Human";
+                            setTaskDraft((c) => ({ ...c, assignee: next as Actor }));
+                          }}
+                        >
+                          <Text style={styles.metaCellLabel}>Assignee</Text>
+                          <Feather name={taskDraft.assignee === "AI" ? "cpu" : "user"} size={11} color="#8494b2" />
+                          <Text style={styles.metaCellValue}>{taskDraft.assignee}</Text>
+                          <Feather name="chevron-right" size={10} color="#3d4b68" />
+                        </Pressable>
+                        <Pressable
+                          style={styles.metaCellTappable}
+                          onPress={() => {
+                            const next = taskDraft.executionMode === "Autonomous" ? "Session" : "Autonomous";
+                            setTaskDraft((c) => ({ ...c, executionMode: next }));
+                          }}
+                        >
+                          <Text style={styles.metaCellLabel}>Run mode</Text>
+                          <Feather name={taskDraft.executionMode === "Autonomous" ? "zap" : "message-square"} size={11} color="#8494b2" />
+                          <Text style={styles.metaCellValue}>{taskDraft.executionMode}</Text>
+                          <Feather name="chevron-right" size={10} color="#3d4b68" />
+                        </Pressable>
+                        <View style={styles.metaCell}>
+                          <Text style={styles.metaCellLabel}>Created by</Text>
+                          <Text style={styles.metaCellValueMuted}>{selectedTask.createdBy}</Text>
                         </View>
-
-                        {selectedTask.status === "Blocked" && selectedTask.inputRequest ? (
-                          <View style={styles.blockerShell}>
-                            <BlockerCard
-                              inputRequest={selectedTask.inputRequest}
-                              onSubmit={(payload) => {
-                                void resolveInput(payload);
-                              }}
-                            />
-                          </View>
-                        ) : null}
-
-                        <View style={styles.activityTabsRow}>
-                          <View style={styles.activityTabs}>
-                            <Pressable
-                              style={[styles.activityTab, activityView === "comments" ? styles.activityTabActive : null]}
-                              onPress={() => setActivityView("comments")}
-                            >
-                              <Text
-                                style={[
-                                  styles.activityTabText,
-                                  activityView === "comments" ? styles.activityTabTextActive : null
-                                ]}
-                              >
-                                Comments
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.activityTabCount,
-                                  activityView === "comments" ? styles.activityTabCountActive : null
-                                ]}
-                              >
-                                {noteComments.length}
-                              </Text>
-                            </Pressable>
-                            <Pressable
-                              style={[styles.activityTab, activityView === "logs" ? styles.activityTabActive : null]}
-                              onPress={() => setActivityView("logs")}
-                            >
-                              <Text
-                                style={[
-                                  styles.activityTabText,
-                                  activityView === "logs" ? styles.activityTabTextActive : null
-                                ]}
-                              >
-                                Logs
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.activityTabCount,
-                                  activityView === "logs" ? styles.activityTabCountActive : null
-                                ]}
-                              >
-                                {logComments.length}
-                              </Text>
-                            </Pressable>
-                          </View>
-                          <Text style={styles.activityCaption}>
-                            {activityView === "comments"
-                              ? "Human-useful notes, decisions, and artifacts"
-                              : "Verbose AI trace, payloads, and autonomous ping-pong"}
-                          </Text>
+                        <View style={styles.metaCell}>
+                          <Text style={styles.metaCellLabel}>Urgency</Text>
+                          <Text style={styles.metaCellValueMuted}>{selectedTask.aiUrgency ?? 3}/5</Text>
                         </View>
-
-                        <View style={styles.commentStack}>
-                          {(activityView === "comments" ? noteComments : logComments).length ? (
-                            (activityView === "comments" ? noteComments : logComments).map((comment) => {
-                              const rawMetadata = formatMetadataJson(comment.metadata);
-                              const showPayload = expandedLogIds.includes(comment.id);
-
-                              return (
-                                <View key={comment.id} style={styles.commentCard}>
-                                  <View style={styles.commentHeader}>
-                                    <View
-                                      style={[
-                                        styles.authorBadge,
-                                        comment.author === "AI" ? styles.authorBadgeAi : styles.authorBadgeHuman
-                                      ]}
-                                    >
-                                      <Text style={styles.authorBadgeText}>{comment.author}</Text>
-                                    </View>
-                                    <Text style={styles.commentType}>{comment.type}</Text>
-                                    <Text style={styles.commentTimestamp}>{formatTimestamp(comment.timestamp)}</Text>
-                                  </View>
-                                  <Text style={styles.commentBody}>{comment.message}</Text>
-
-                                  {comment.attachmentLink ? (
-                                    <View style={styles.attachmentCard}>
-                                      <Text style={styles.attachmentTitle}>
-                                        {comment.attachmentMeta?.filename ?? comment.attachmentLink}
-                                      </Text>
-                                      <Text style={styles.attachmentMeta}>
-                                        {(comment.attachmentMeta?.mime_type ?? "application/octet-stream").toLowerCase()} ·{" "}
-                                        {formatBytes(comment.attachmentMeta?.size_bytes)}
-                                      </Text>
-                                      {comment.attachmentMeta?.uploaded_at ? (
-                                        <Text style={styles.attachmentMeta}>
-                                          Uploaded {formatTimestamp(comment.attachmentMeta.uploaded_at)}
-                                        </Text>
-                                      ) : null}
-                                      {comment.attachmentMeta?.sha256 ? (
-                                        <Text style={styles.attachmentMeta}>SHA256 {shortHash(comment.attachmentMeta.sha256)}</Text>
-                                      ) : null}
-                                      {comment.attachmentMeta?.kind === "image" ? (
-                                        <Image source={{ uri: comment.attachmentLink }} style={styles.attachmentImage as ImageStyle} />
-                                      ) : null}
-                                      {comment.attachmentMeta?.kind === "video" ? (
-                                        <AttachmentVideoPreview
-                                          uri={comment.attachmentLink}
-                                          mimeType={comment.attachmentMeta?.mime_type}
-                                        />
-                                      ) : null}
-                                      {comment.attachmentMeta?.preview_text ? (
-                                        <View style={styles.previewCard}>
-                                          <Text style={styles.previewLabel}>Preview</Text>
-                                          <Text style={styles.previewText}>{comment.attachmentMeta.preview_text}</Text>
-                                        </View>
-                                      ) : null}
-                                      <Pressable
-                                        style={styles.toolbarButton}
-                                        onPress={() => void openLink(comment.attachmentLink ?? "")}
-                                      >
-                                        <Feather name="external-link" size={14} color="#dbe1ec" />
-                                        <Text style={styles.toolbarButtonText}>Open attachment</Text>
-                                      </Pressable>
-                                    </View>
-                                  ) : null}
-
-                                  {activityView === "logs" && rawMetadata ? (
-                                    <View style={styles.logPayloadCard}>
-                                      <View style={styles.logPayloadHeader}>
-                                        <Text style={styles.previewLabel}>Payload</Text>
-                                        <Pressable style={styles.quietButton} onPress={() => toggleLogPayload(comment.id)}>
-                                          <Text style={styles.quietButtonText}>{showPayload ? "Hide raw" : "Show raw"}</Text>
-                                        </Pressable>
-                                      </View>
-                                      {showPayload ? <Text style={styles.logPayloadText}>{rawMetadata}</Text> : null}
-                                    </View>
-                                  ) : null}
-                                </View>
-                              );
-                            })
-                          ) : (
-                            <View style={styles.emptyStateCard}>
-                              <Text style={styles.emptyStateTitle}>
-                                {activityView === "comments" ? "No comments yet" : "No logs yet"}
-                              </Text>
-                              <Text style={styles.emptyStateText}>
-                                {activityView === "comments"
-                                  ? "Human-facing notes, decisions, and artifacts will appear here."
-                                  : "Detailed AI execution logs and payloads will appear here."}
-                              </Text>
-                            </View>
-                          )}
+                        <View style={styles.metaCell}>
+                          <Text style={styles.metaCellLabel}>Updated</Text>
+                          <Text style={styles.metaCellValueMono}>{formatTimestamp(selectedTask.updatedAt)}</Text>
                         </View>
-                      </ScrollView>
-
-                      {activityView === "comments" ? (
-                        <View style={styles.composerDock}>
-                          {uploadDraft ? (
-                            <Text style={styles.uploadHint}>
-                              Selected: {uploadDraft.filename} ({formatBytes(uploadDraft.size_bytes)})
-                            </Text>
-                          ) : null}
-                          {uploadError ? <Text style={styles.inlineError}>{uploadError}</Text> : null}
-                          <View style={styles.composerDockRow}>
-                            <View style={styles.composerAvatar}>
-                              <Feather name="user" size={18} color="#f8fafc" />
-                            </View>
-                            <View style={styles.composerInputShell}>
-                              <TextInput
-                                style={styles.composerInput}
-                                value={commentDraft}
-                                onChangeText={setCommentDraft}
-                                placeholder="Add comment"
-                                placeholderTextColor="#7d8597"
-                                multiline
-                              />
-                              <View style={styles.composerActions}>
-                                <Pressable style={styles.composerIconButton} onPress={() => void attachFile()}>
-                                  <Feather name="paperclip" size={16} color="#cfd5e3" />
-                                </Pressable>
-                                <Pressable
-                                  style={[styles.composerSubmitButton, commentSubmitting ? styles.buttonDisabled : null]}
-                                  onPress={() => void addComment()}
-                                  disabled={commentSubmitting}
-                                >
-                                  <Feather name="arrow-up" size={15} color="#f8fafc" />
-                                </Pressable>
-                              </View>
-                            </View>
-                          </View>
-                        </View>
-                      ) : (
-                        <View style={styles.composerDockMuted}>
-                          <Text style={styles.composerDockMutedText}>
-                            Logs are read-only here. Switch back to Comments to add a human note or attachment.
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <View style={[styles.taskWorkspaceSideRail, singleColumn ? styles.taskWorkspaceSideRailSingle : null]}>
-                      <View style={styles.sideRailCard}>
-                        <Text style={styles.sideRailTitle}>Task properties</Text>
-                        <SideRailItem label="Workspace" value={activeWorkspace?.name ?? "Current workspace"} />
-                        <SideRailItem label="Status" value={selectedTask.status} accent={selectedTask.status === "Blocked"} />
-                        <SideRailItem label="Assignee" value={selectedTask.assignee} />
-                        <SideRailItem label="Created by" value={selectedTask.createdBy} />
-                        <SideRailItem label="Urgency" value={`${selectedTask.aiUrgency ?? 3}/5`} />
-                        <SideRailItem label="Updated" value={formatTimestamp(selectedTask.updatedAt)} />
-                        {selectedTask.workerId ? <SideRailItem label="Worker" value={selectedTask.workerId} /> : null}
-                        {selectedTask.claimedAt ? <SideRailItem label="Claimed" value={formatTimestamp(selectedTask.claimedAt)} /> : null}
-                        {selectedTask.contextLink && looksLikeUrl(selectedTask.contextLink) ? (
-                          <View style={styles.sideRailItem}>
-                            <Text style={styles.sideRailLabel}>Context</Text>
-                            <Pressable style={styles.sideRailLink} onPress={() => void openLink(selectedTask.contextLink ?? "")}>
-                              <Feather name="external-link" size={14} color="#dbe1ec" />
-                              <Text style={styles.sideRailLinkText}>Open link</Text>
-                            </Pressable>
+                        {selectedTask.workerId ? (
+                          <View style={styles.metaCell}>
+                            <Text style={styles.metaCellLabel}>Worker</Text>
+                            <Text style={styles.metaCellValueMono}>{selectedTask.workerId}</Text>
                           </View>
                         ) : null}
                       </View>
-                    </View>
+                      {taskDraftDirty ? (
+                        <View style={styles.inlineSaveRow}>
+                          <Pressable
+                            style={styles.quietButton}
+                            onPress={() => setTaskDraft(createTaskDraft(selectedTask))}
+                          >
+                            <Text style={styles.quietButtonText}>Reset</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.primaryButtonSmall, taskSaving ? styles.buttonDisabled : null]}
+                            onPress={() => void saveTaskConfig()}
+                            disabled={taskSaving}
+                          >
+                            <Text style={styles.primaryButtonText}>{taskSaving ? "Saving..." : "Save"}</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
+
+                      <View style={styles.contextRow}>
+                        <Feather name="link" size={13} color="#3d4b68" />
+                        <TextInput
+                          style={styles.contextInput}
+                          value={taskDraft.contextLink}
+                          onChangeText={(value) => setTaskDraft((current) => ({ ...current, contextLink: value }))}
+                          placeholder="Context note or URL"
+                          placeholderTextColor="#3d4b68"
+                        />
+                        {selectedTaskContextIsUrl ? (
+                          <Pressable style={styles.contextOpenBtn} onPress={() => void openLink(selectedTaskContextValue)}>
+                            <Feather name="external-link" size={12} color="#5df5d0" />
+                          </Pressable>
+                        ) : null}
+                      </View>
+
+                      {selectedTask.status === "Blocked" && selectedTask.inputRequest ? (
+                        <View style={styles.blockerShell}>
+                          <BlockerCard inputRequest={selectedTask.inputRequest} onSubmit={(payload) => { void resolveInput(payload); }} />
+                        </View>
+                      ) : null}
+
+                      <View style={styles.activityDivider}>
+                        <View style={styles.activityTabs}>
+                          <Pressable style={[styles.activityTab, activityView === "comments" ? styles.activityTabActive : null]} onPress={() => setActivityView("comments")}>
+                            <Text style={[styles.activityTabText, activityView === "comments" ? styles.activityTabTextActive : null]}>Comments</Text>
+                            <Text style={[styles.activityTabCount, activityView === "comments" ? styles.activityTabCountActive : null]}>{noteComments.length}</Text>
+                          </Pressable>
+                          <Pressable style={[styles.activityTab, activityView === "logs" ? styles.activityTabActive : null]} onPress={() => setActivityView("logs")}>
+                            <Text style={[styles.activityTabText, activityView === "logs" ? styles.activityTabTextActive : null]}>Logs</Text>
+                            <Text style={[styles.activityTabCount, activityView === "logs" ? styles.activityTabCountActive : null]}>{logComments.length}</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+
+                      <View style={styles.commentStack}>
+                        {(activityView === "comments" ? noteComments : logComments).length ? (
+                          (activityView === "comments" ? noteComments : logComments).map((comment) => {
+                            const rawMetadata = formatMetadataJson(comment.metadata);
+                            const showPayload = expandedLogIds.includes(comment.id);
+                            return (
+                              <View key={comment.id} style={styles.commentCard}>
+                                <View style={styles.commentHeader}>
+                                  <View style={[styles.authorBadge, comment.author === "AI" ? styles.authorBadgeAi : styles.authorBadgeHuman]}>
+                                    <Text style={styles.authorBadgeText}>{comment.author}</Text>
+                                  </View>
+                                  <Text style={styles.commentType}>{comment.type}</Text>
+                                  <Text style={styles.commentTimestamp}>{formatTimestamp(comment.timestamp)}</Text>
+                                </View>
+                                <Text style={styles.commentBody}>{comment.message}</Text>
+                                {comment.attachmentLink ? (
+                                  <View style={styles.attachmentCard}>
+                                    <View style={styles.attachmentHeader}>
+                                      <Text style={styles.attachmentTitle}>{comment.attachmentMeta?.filename ?? comment.attachmentLink}</Text>
+                                      <Text style={styles.attachmentMeta}>{formatBytes(comment.attachmentMeta?.size_bytes)}</Text>
+                                    </View>
+                                    {comment.attachmentMeta?.kind === "image" ? <Image source={{ uri: comment.attachmentLink }} style={styles.attachmentImage as ImageStyle} /> : null}
+                                    {comment.attachmentMeta?.kind === "video" ? <AttachmentVideoPreview uri={comment.attachmentLink} mimeType={comment.attachmentMeta?.mime_type} /> : null}
+                                    {comment.attachmentMeta?.preview_text ? <View style={styles.previewCard}><Text style={styles.previewText}>{comment.attachmentMeta.preview_text}</Text></View> : null}
+                                    <Pressable style={styles.attachmentOpenBtn} onPress={() => void openLink(comment.attachmentLink ?? "")}>
+                                      <Feather name="external-link" size={12} color="#8494b2" />
+                                      <Text style={styles.attachmentOpenText}>Open</Text>
+                                    </Pressable>
+                                  </View>
+                                ) : null}
+                                {activityView === "logs" && rawMetadata ? (
+                                  <View style={styles.logPayloadCard}>
+                                    <Pressable style={styles.logPayloadToggle} onPress={() => toggleLogPayload(comment.id)}>
+                                      <Feather name={showPayload ? "chevron-up" : "chevron-down"} size={12} color="#526080" />
+                                      <Text style={styles.quietButtonText}>{showPayload ? "Hide payload" : "Show payload"}</Text>
+                                    </Pressable>
+                                    {showPayload ? <Text style={styles.logPayloadText}>{rawMetadata}</Text> : null}
+                                  </View>
+                                ) : null}
+                              </View>
+                            );
+                          })
+                        ) : (
+                          <View style={styles.emptyStateCard}>
+                            <Text style={styles.emptyStateText}>{activityView === "comments" ? "No comments yet." : "No logs yet."}</Text>
+                          </View>
+                        )}
+                      </View>
+                    </ScrollView>
+
+                    {activityView === "comments" ? (
+                      <View style={styles.composerDock}>
+                        {uploadDraft ? <Text style={styles.uploadHint}>{uploadDraft.filename} ({formatBytes(uploadDraft.size_bytes)})</Text> : null}
+                        {uploadError ? <Text style={styles.inlineError}>{uploadError}</Text> : null}
+                        <View style={styles.composerDockRow}>
+                          <View style={styles.composerInputShell}>
+                            <TextInput style={styles.composerInput} value={commentDraft} onChangeText={setCommentDraft} placeholder="Write a comment..." placeholderTextColor="#3d4b68" multiline />
+                            <View style={styles.composerActions}>
+                              <Pressable style={styles.composerIconButton} onPress={() => void attachFile()}><Feather name="paperclip" size={14} color="#526080" /></Pressable>
+                              <Pressable style={[styles.composerSubmitButton, commentSubmitting ? styles.buttonDisabled : null]} onPress={() => void addComment()} disabled={commentSubmitting}><Feather name="arrow-up" size={14} color="#f0f4fa" /></Pressable>
+                            </View>
+                          </View>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.composerDockMuted}>
+                        <Text style={styles.composerDockMutedText}>Switch to Comments to add notes.</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
               ) : null}
@@ -1982,7 +1863,7 @@ export default function App() {
                     <Text style={styles.modalSubtle}>Create in {activeWorkspace?.name ?? "current workspace"}</Text>
                   </View>
                   <Pressable style={styles.iconButton} onPress={() => setShowCreateTask(false)}>
-                    <Feather name="x" size={16} color="#cfd5e3" />
+                    <Feather name="x" size={15} color="#526080" />
                   </Pressable>
                 </View>
 
@@ -1992,14 +1873,14 @@ export default function App() {
                     value={newTitle}
                     onChangeText={setNewTitle}
                     placeholder="Task name"
-                    placeholderTextColor="#6b7280"
+                    placeholderTextColor="#3d4b68"
                   />
                   <TextInput
                     style={styles.modalTextInput}
                     value={newContextLink}
                     onChangeText={setNewContextLink}
                     placeholder="Context link or description"
-                    placeholderTextColor="#6b7280"
+                    placeholderTextColor="#3d4b68"
                   />
 
                   <View style={styles.modalChoiceRow}>
@@ -2019,6 +1900,15 @@ export default function App() {
                       options={[
                         { label: "Human", value: "Human" },
                         { label: "AI", value: "AI" }
+                      ]}
+                    />
+                    <ChoiceGroup
+                      label="Run Mode"
+                      value={newExecutionMode}
+                      onChange={(value) => setNewExecutionMode(value as TaskExecutionMode)}
+                      options={[
+                        { label: "Autonomous", value: "Autonomous" },
+                        { label: "Session", value: "Session" }
                       ]}
                     />
                     <ChoiceGroup
@@ -2055,7 +1945,7 @@ export default function App() {
                     <Text style={styles.modalSubtle}>Create a separate lane for a different area of work.</Text>
                   </View>
                   <Pressable style={styles.iconButton} onPress={() => setShowWorkspaceCreator(false)}>
-                    <Feather name="x" size={16} color="#cfd5e3" />
+                    <Feather name="x" size={15} color="#526080" />
                   </Pressable>
                 </View>
 
@@ -2065,7 +1955,7 @@ export default function App() {
                     value={workspaceDraft}
                     onChangeText={setWorkspaceDraft}
                     placeholder="Workspace name"
-                    placeholderTextColor="#6b7280"
+                    placeholderTextColor="#3d4b68"
                   />
                 </View>
 
@@ -2099,7 +1989,7 @@ export default function App() {
                     <Text style={styles.modalSubtle}>This removes the task from the active queue and hides its thread.</Text>
                   </View>
                   <Pressable style={styles.iconButton} onPress={() => setTaskDeleteTarget(null)}>
-                    <Feather name="x" size={16} color="#cfd5e3" />
+                    <Feather name="x" size={15} color="#526080" />
                   </Pressable>
                 </View>
 
@@ -2139,7 +2029,7 @@ export default function App() {
                     <Text style={styles.modalSubtle}>This only removes the workspace from Concentray. The store file stays on disk.</Text>
                   </View>
                   <Pressable style={styles.iconButton} onPress={() => setWorkspaceDeleteTarget(null)}>
-                    <Feather name="x" size={16} color="#cfd5e3" />
+                    <Feather name="x" size={15} color="#526080" />
                   </Pressable>
                 </View>
 
@@ -2170,68 +2060,73 @@ export default function App() {
   );
 }
 
+const F = '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const FM = '"JetBrains Mono", "SF Mono", Menlo, monospace';
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#0b0d12"
+    backgroundColor: "#060810"
   },
   workspaceBg: {
     flex: 1,
-    backgroundColor: "#0b0d12"
+    backgroundColor: "#060810"
   },
   container: {
     width: "100%",
     maxWidth: 1680,
     alignSelf: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    gap: 16
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12
   },
   errorBanner: {
-    borderRadius: 16,
-    backgroundColor: "rgba(127, 29, 29, 0.75)",
+    borderRadius: 10,
+    backgroundColor: "rgba(244, 63, 94, 0.10)",
     borderWidth: 1,
-    borderColor: "rgba(248, 113, 113, 0.28)",
-    paddingHorizontal: 14,
+    borderColor: "rgba(244, 63, 94, 0.22)",
+    paddingHorizontal: 16,
     paddingVertical: 12
   },
   errorBannerText: {
-    color: "#fecaca",
-    fontWeight: "700"
+    color: "#fda4af",
+    fontWeight: "600",
+    fontSize: 13,
+    fontFamily: F
   },
   workspaceShell: {
     flexDirection: "row",
     alignItems: "stretch",
     minHeight: 820,
-    backgroundColor: "#121419",
-    borderRadius: 32,
+    backgroundColor: "#0c0f18",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.10)",
     overflow: "hidden"
   },
   workspaceShellSingle: {
     flexDirection: "column"
   },
   sidebarPanel: {
-    width: 320,
-    backgroundColor: "#111318",
+    width: 272,
+    backgroundColor: "#080b13",
     borderRightWidth: 1,
-    borderRightColor: "rgba(255,255,255,0.07)",
-    padding: 18,
-    gap: 16
+    borderRightColor: "rgba(99,130,190,0.08)",
+    padding: 16,
+    gap: 20
   },
   sidebarPanelSingle: {
     width: "100%"
   },
   sidebarPanelCollapsed: {
-    width: 96,
-    paddingHorizontal: 12
+    width: 68,
+    paddingHorizontal: 10
   },
   sidebarTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 10
+    gap: 8
   },
   accountRow: {
     flexDirection: "row",
@@ -2240,113 +2135,127 @@ const styles = StyleSheet.create({
     minWidth: 0
   },
   logoMark: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "#151922",
+    borderColor: "rgba(0,212,170,0.22)",
+    backgroundColor: "rgba(0,212,170,0.06)",
     alignItems: "center",
     justifyContent: "center",
     position: "relative"
   },
   logoMarkRingOuter: {
     position: "absolute",
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1.5,
-    borderColor: "rgba(249, 115, 22, 0.55)"
+    borderColor: "rgba(0,212,170,0.35)"
   },
   logoMarkRingInner: {
     position: "absolute",
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     borderWidth: 1.5,
-    borderColor: "rgba(56, 189, 248, 0.75)"
+    borderColor: "rgba(91,141,239,0.55)"
   },
   logoMarkCore: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "#f8fafc"
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#00d4aa"
+  },
+  logoMarkPulse: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(0,212,170,0.08)"
   },
   accountCopy: {
-    gap: 2,
+    gap: 1,
     minWidth: 0
   },
   accountName: {
-    color: "#f8fafc",
-    fontSize: 18,
-    fontWeight: "700"
+    color: "#f0f4fa",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: -0.3,
+    fontFamily: F
   },
   accountSubtle: {
-    color: "#8b92a6",
-    fontSize: 12
+    color: "#526080",
+    fontSize: 11,
+    fontFamily: F
   },
   iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "rgba(99,130,190,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.10)",
     alignItems: "center",
     justifyContent: "center"
   },
   sidebarActionStack: {
-    gap: 10
+    gap: 6
   },
   sidebarPrimaryAction: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderRadius: 16,
-    backgroundColor: "rgba(234, 96, 81, 0.16)",
+    borderRadius: 10,
+    backgroundColor: "rgba(0,212,170,0.07)",
     borderWidth: 1,
-    borderColor: "rgba(234, 96, 81, 0.28)",
+    borderColor: "rgba(0,212,170,0.18)",
     paddingHorizontal: 14,
-    paddingVertical: 13
+    paddingVertical: 11
   },
   sidebarPrimaryActionText: {
-    color: "#ff8a78",
-    fontSize: 16,
-    fontWeight: "700"
+    color: "#5df5d0",
+    fontSize: 14,
+    fontWeight: "600",
+    fontFamily: F
   },
   sidebarSecondaryAction: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 10,
+    backgroundColor: "rgba(99,130,190,0.05)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.10)",
     paddingHorizontal: 14,
-    paddingVertical: 13
+    paddingVertical: 11
   },
   sidebarSecondaryActionText: {
-    color: "#cfd5e3",
-    fontSize: 15,
-    fontWeight: "700"
+    color: "#8494b2",
+    fontSize: 14,
+    fontWeight: "600",
+    fontFamily: F
   },
   sidebarSectionTitle: {
-    color: "#7d8597",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.1,
-    textTransform: "uppercase"
+    color: "#3d4b68",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    fontFamily: F
   },
   workspaceStack: {
-    gap: 8
+    gap: 3
   },
   workspaceCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    gap: 10,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
     backgroundColor: "transparent",
     borderWidth: 1,
     borderColor: "transparent"
@@ -2355,83 +2264,86 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12
+    gap: 10
   },
   workspaceCardActive: {
-    backgroundColor: "rgba(122, 50, 43, 0.55)",
-    borderColor: "rgba(255,255,255,0.06)"
+    backgroundColor: "rgba(0,212,170,0.06)",
+    borderColor: "rgba(0,212,170,0.14)"
   },
   workspaceCardCollapsed: {
     justifyContent: "center",
-    paddingHorizontal: 10
+    paddingHorizontal: 8
   },
   workspaceGlyph: {
-    minWidth: 34,
-    height: 34,
-    borderRadius: 10,
+    minWidth: 32,
+    height: 32,
+    borderRadius: 8,
     borderWidth: 1,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(99,130,190,0.06)",
     alignItems: "center",
     justifyContent: "center"
   },
   workspaceGlyphActive: {
-    backgroundColor: "rgba(255,255,255,0.16)"
+    backgroundColor: "rgba(0,212,170,0.10)"
   },
   workspaceGlyphDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5
+    width: 8,
+    height: 8,
+    borderRadius: 4
   },
   workspaceCardBody: {
     flex: 1,
-    gap: 4,
+    gap: 2,
     minWidth: 0
   },
   workspaceCardTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 10
+    gap: 8
   },
   workspaceName: {
-    color: "#f8fafc",
-    fontSize: 16,
-    fontWeight: "700"
+    color: "#dce4f0",
+    fontSize: 14,
+    fontWeight: "600",
+    fontFamily: F
   },
   workspaceStatePill: {
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 9,
-    paddingVertical: 4
+    backgroundColor: "rgba(99,130,190,0.08)",
+    paddingHorizontal: 7,
+    paddingVertical: 3
   },
   workspaceStatePillActive: {
-    backgroundColor: "#0f766e"
+    backgroundColor: "rgba(0,212,170,0.14)"
   },
   workspaceStateText: {
-    color: "#f8fafc",
+    color: "#8494b2",
     fontSize: 10,
-    fontWeight: "800"
+    fontWeight: "700",
+    fontFamily: F
   },
   workspaceStore: {
-    color: "#8b92a6",
-    fontSize: 12
+    color: "#3d4b68",
+    fontSize: 11,
+    fontFamily: F
   },
   workspaceDeleteButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(99,130,190,0.05)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
+    borderColor: "rgba(99,130,190,0.08)"
   },
   mainPanel: {
     flex: 1,
     minWidth: 0,
     backgroundColor: "transparent",
     padding: 24,
-    gap: 18
+    gap: 16
   },
   mainPanelHeader: {
     flexDirection: "row",
@@ -2441,74 +2353,78 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.07)"
+    borderBottomColor: "rgba(99,130,190,0.08)"
   },
   mainHeaderCopy: {
-    gap: 8
+    gap: 6
   },
   mainBreadcrumb: {
-    color: "#8b92a6",
-    fontSize: 12,
-    fontWeight: "700"
+    color: "#3d4b68",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    fontFamily: F
   },
   mainPanelTitle: {
-    color: "#f8fafc",
-    fontSize: 30,
-    lineHeight: 34,
-    fontWeight: "800"
+    color: "#f0f4fa",
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    fontFamily: F
   },
   headerStats: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10
+    gap: 6
   },
   headerStat: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    gap: 6,
+    borderRadius: 6,
+    backgroundColor: "rgba(99,130,190,0.05)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(99,130,190,0.08)",
     paddingHorizontal: 10,
-    paddingVertical: 7
+    paddingVertical: 5
   },
   headerStatValue: {
-    color: "#f8fafc",
-    fontSize: 12,
-    fontWeight: "800"
+    color: "#dce4f0",
+    fontSize: 13,
+    fontWeight: "700",
+    fontFamily: FM
   },
   headerStatLabel: {
-    color: "#8b92a6",
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase"
+    color: "#3d4b68",
+    fontSize: 10,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    fontFamily: F
   },
   mainHeaderActions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 6
   },
   toolbarButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    gap: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(99,130,190,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.10)",
     paddingHorizontal: 12,
-    paddingVertical: 9
+    paddingVertical: 8
   },
   toolbarButtonText: {
-    color: "#dbe1ec",
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  toolbarDangerText: {
-    color: "#fecaca",
-    fontSize: 13,
-    fontWeight: "700"
+    color: "#8494b2",
+    fontSize: 12,
+    fontWeight: "600",
+    fontFamily: F
   },
   searchRow: {
     flexDirection: "row",
@@ -2516,120 +2432,137 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    color: "#f8fafc",
-    paddingHorizontal: 16,
-    paddingVertical: 12
+    borderColor: "rgba(99,130,190,0.10)",
+    backgroundColor: "rgba(99,130,190,0.04)",
+    color: "#dce4f0",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontFamily: F
   },
   filterBar: {
     gap: 12,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderRadius: 10,
+    backgroundColor: "rgba(99,130,190,0.04)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(99,130,190,0.08)",
     padding: 14
   },
   filterSection: {
     gap: 8
   },
   filterLabel: {
-    color: "#7d8597",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-    textTransform: "uppercase"
+    color: "#3d4b68",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    fontFamily: F
   },
   filterWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 6
   },
   filterChip: {
-    borderRadius: 999,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(99,130,190,0.10)",
+    backgroundColor: "rgba(99,130,190,0.05)",
     paddingHorizontal: 12,
-    paddingVertical: 8
+    paddingVertical: 7
   },
   filterChipActive: {
-    backgroundColor: "rgba(234, 96, 81, 0.18)",
-    borderColor: "rgba(234, 96, 81, 0.32)"
+    backgroundColor: "rgba(0,212,170,0.10)",
+    borderColor: "rgba(0,212,170,0.25)"
   },
   filterChipText: {
-    color: "#cfd5e3",
-    fontWeight: "700"
+    color: "#8494b2",
+    fontWeight: "600",
+    fontSize: 12,
+    fontFamily: F
   },
   filterChipTextActive: {
-    color: "#ffb2a8"
+    color: "#5df5d0"
   },
   contentSplit: {
-    gap: 18
+    flex: 1,
+    minHeight: 0
+  },
+  detailBody: {
+    padding: 20,
+    gap: 14
   },
   taskListPane: {
-    gap: 10,
+    gap: 2,
     minWidth: 0,
     paddingBottom: 12
   },
-  taskList: {
-    gap: 10
-  },
   taskCard: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 14,
-    paddingVertical: 16,
+    alignItems: "stretch",
+    gap: 12,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)"
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "transparent",
+    backgroundColor: "transparent"
+  },
+  taskStatusBar: {
+    width: 3,
+    alignSelf: "stretch",
+    borderRadius: 2,
+    backgroundColor: "rgba(99,130,190,0.12)",
+    marginVertical: 2
+  },
+  statusBarPending: {
+    backgroundColor: "rgba(91,141,239,0.40)"
+  },
+  statusBarInProgress: {
+    backgroundColor: "#00d4aa"
+  },
+  statusBarBlocked: {
+    backgroundColor: "#f43f5e"
+  },
+  statusBarDone: {
+    backgroundColor: "rgba(99,130,190,0.15)"
   },
   taskCheckButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 1
   },
   taskCheckButtonDone: {
-    backgroundColor: "rgba(255,255,255,0.04)"
+    backgroundColor: "rgba(99,130,190,0.06)"
   },
   taskCardSelected: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(234, 96, 81, 0.18)",
-    backgroundColor: "rgba(255,255,255,0.025)"
-  },
-  taskStatusOrb: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-    backgroundColor: "transparent"
+    borderColor: "rgba(0,212,170,0.18)",
+    backgroundColor: "rgba(0,212,170,0.04)"
   },
   statusPending: {
     backgroundColor: "transparent"
   },
   statusInProgress: {
-    backgroundColor: "rgba(96, 165, 250, 0.78)",
-    borderColor: "rgba(147, 197, 253, 0.80)"
+    backgroundColor: "rgba(0,212,170,0.70)",
+    borderColor: "rgba(0,212,170,0.80)"
   },
   statusBlocked: {
-    backgroundColor: "rgba(248, 113, 113, 0.82)",
-    borderColor: "rgba(252, 165, 165, 0.9)"
+    backgroundColor: "rgba(244,63,94,0.75)",
+    borderColor: "rgba(244,63,94,0.85)"
   },
   statusDone: {
-    backgroundColor: "rgba(107, 114, 128, 0.85)",
-    borderColor: "rgba(156, 163, 175, 0.9)"
+    backgroundColor: "rgba(107, 114, 128, 0.75)",
+    borderColor: "rgba(156, 163, 175, 0.85)"
   },
   taskCardBody: {
     flex: 1,
-    gap: 8,
+    gap: 5,
     minWidth: 0
   },
   taskCardHeader: {
@@ -2640,19 +2573,28 @@ const styles = StyleSheet.create({
   },
   taskCardTitle: {
     flex: 1,
-    color: "#f8fafc",
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: "500"
+    color: "#dce4f0",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "500",
+    fontFamily: F
   },
   taskCardTitleDone: {
-    color: "#8b92a6",
+    color: "#3d4b68",
     textDecorationLine: "line-through"
   },
   taskBlockedHint: {
-    color: "#ff8a78",
-    fontSize: 12,
-    fontWeight: "800"
+    color: "#f43f5e",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    borderRadius: 4,
+    overflow: "hidden",
+    backgroundColor: "rgba(244,63,94,0.10)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    fontFamily: F
   },
   taskMetaRow: {
     flexDirection: "row",
@@ -2662,56 +2604,31 @@ const styles = StyleSheet.create({
     flexWrap: "wrap"
   },
   taskCardMeta: {
-    color: "#9ea6b8",
-    fontSize: 13
+    color: "#526080",
+    fontSize: 12,
+    fontFamily: F
   },
   taskTimestamp: {
-    color: "#7d8597",
-    fontSize: 12
+    color: "#3d4b68",
+    fontSize: 11,
+    fontFamily: FM
   },
   taskUrgency: {
-    color: "#cfd5e3",
-    fontSize: 13
+    color: "#526080",
+    fontSize: 12,
+    fontFamily: F
   },
   emptyStateCardCompact: {
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    padding: 16,
-    gap: 8
-  },
-  detailPane: {
-    gap: 16
-  },
-  detailHeaderCopy: {
-    flex: 1,
-    gap: 6,
-    minWidth: 0
-  },
-  detailPaneHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    flexWrap: "wrap",
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.07)"
-  },
-  detailPanelTitle: {
-    color: "#f8fafc",
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: "800"
-  },
-  detailPanelMeta: {
-    color: "#8b92a6",
-    fontSize: 13
+    borderColor: "rgba(99,130,190,0.08)",
+    backgroundColor: "rgba(99,130,190,0.03)",
+    padding: 20,
+    gap: 6
   },
   drawerScrim: {
     flex: 1,
-    backgroundColor: "rgba(4, 6, 10, 0.72)",
+    backgroundColor: "rgba(3, 4, 8, 0.78)",
     alignItems: "center",
     justifyContent: "center",
     padding: 20
@@ -2722,21 +2639,17 @@ const styles = StyleSheet.create({
   drawerPanel: {
     width: "100%",
     maxWidth: 1380,
-    height: "88%",
-    maxHeight: 940,
-    backgroundColor: "#121419",
-    borderRadius: 28,
+    height: "90%",
+    maxHeight: 960,
+    backgroundColor: "#0c0f18",
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.12)",
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOpacity: 0.42,
-    shadowRadius: 32,
-    shadowOffset: {
-      width: 0,
-      height: 12
-    },
-    elevation: 20
+    shadowOpacity: 0.5,
+    shadowRadius: 40,
+    elevation: 24
   },
   drawerPanelMobile: {
     maxWidth: "100%",
@@ -2751,11 +2664,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
     paddingHorizontal: 28,
-    paddingTop: 24,
-    paddingBottom: 20,
+    paddingTop: 22,
+    paddingBottom: 18,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.07)",
-    backgroundColor: "#101217"
+    borderBottomColor: "rgba(99,130,190,0.08)",
+    backgroundColor: "#080b13"
   },
   drawerHeaderTrail: {
     flex: 1,
@@ -2766,392 +2679,317 @@ const styles = StyleSheet.create({
     minWidth: 0
   },
   drawerWorkspaceLabel: {
-    color: "#7f879a",
-    fontSize: 13,
+    color: "#3d4b68",
+    fontSize: 12,
     fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 1.1
+    letterSpacing: 1.2,
+    fontFamily: F
   },
   drawerWorkspaceDot: {
-    color: "#5f6779",
+    color: "#2a3550",
     fontSize: 13,
     fontWeight: "700"
   },
   drawerWorkspaceMeta: {
-    color: "#d8deea",
-    fontSize: 14,
-    fontWeight: "600"
+    color: "#8494b2",
+    fontSize: 13,
+    fontWeight: "600",
+    fontFamily: F
   },
   drawerHeaderActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     flexWrap: "wrap",
     justifyContent: "flex-end"
   },
-  drawerScrollContent: {
-    padding: 20,
-    paddingBottom: 36
-  },
-  taskWorkspaceLayout: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "stretch",
-    minHeight: 0
-  },
-  taskWorkspaceLayoutSingle: {
-    flexDirection: "column"
-  },
-  taskWorkspaceMain: {
-    flex: 1,
-    minWidth: 0,
-    backgroundColor: "#121419"
-  },
-  taskWorkspaceMainScroll: {
-    flex: 1
-  },
-  taskWorkspaceMainContent: {
-    paddingHorizontal: 28,
-    paddingTop: 28,
-    paddingBottom: 28,
-    gap: 22
-  },
-  taskWorkspaceSideRail: {
-    width: 268,
-    flexShrink: 0,
-    borderLeftWidth: 1,
-    borderLeftColor: "rgba(255,255,255,0.07)",
-    backgroundColor: "#16191f",
-    padding: 24,
-    gap: 16
-  },
-  taskWorkspaceSideRailSingle: {
-    width: "100%",
-    borderLeftWidth: 0,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.07)"
-  },
-  taskHero: {
-    gap: 18
-  },
-  taskHeroRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 16
-  },
-  taskHeroCheck: {
-    width: 36,
-    alignItems: "center",
-    paddingTop: 4
-  },
-  taskHeroBody: {
-    flex: 1,
-    gap: 8,
-    minWidth: 0
-  },
-  taskHeroTitle: {
-    color: "#f8fafc",
-    fontSize: 38,
-    lineHeight: 44,
+  drawerTitleInput: {
+    color: "#f0f4fa",
+    fontSize: 28,
+    lineHeight: 36,
     fontWeight: "800",
-    letterSpacing: -0.7
-  },
-  taskHeroTitleInput: {
+    letterSpacing: -0.5,
+    fontFamily: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     paddingHorizontal: 0,
     paddingVertical: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
     textAlignVertical: "top"
   },
-  taskHeroContextCard: {
-    borderRadius: 18,
+  metaGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    borderRadius: 10,
+    backgroundColor: "rgba(99,130,190,0.03)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    padding: 16,
-    gap: 10,
-    alignSelf: "stretch"
+    borderColor: "rgba(99,130,190,0.06)",
+    padding: 4
   },
-  taskHeroContextInput: {
-    minHeight: 92,
-    color: "#b5bdd0",
-    fontSize: 17,
-    lineHeight: 26,
-    padding: 0,
-    textAlignVertical: "top"
-  },
-  taskHeroContextHint: {
-    color: "#7d8597",
-    fontSize: 14,
-    lineHeight: 21
-  },
-  taskHeroLink: {
+  metaCell: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-start",
-    borderRadius: 999,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 6,
+    backgroundColor: "rgba(99,130,190,0.04)"
+  },
+  metaCellTappable: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 6,
+    backgroundColor: "rgba(0,212,170,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    paddingHorizontal: 12,
-    paddingVertical: 8
+    borderColor: "rgba(0,212,170,0.12)"
   },
-  taskHeroLinkText: {
-    color: "#dbe1ec",
-    fontSize: 14,
-    fontWeight: "700"
+  metaCellLabel: {
+    color: "#3d4b68",
+    fontSize: 11,
+    fontWeight: "600",
+    fontFamily: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif'
   },
-  detailMetaRow: {
+  metaCellValue: {
+    color: "#dce4f0",
+    fontSize: 13,
+    fontWeight: "600",
+    fontFamily: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif'
+  },
+  metaCellValueMuted: {
+    color: "#526080",
+    fontSize: 13,
+    fontWeight: "500",
+    fontFamily: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif'
+  },
+  metaCellValueMono: {
+    color: "#8494b2",
+    fontSize: 12,
+    fontFamily: '"JetBrains Mono", "SF Mono", Menlo, monospace'
+  },
+  metaStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3
+  },
+  inlineSaveRow: {
     flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-    justifyContent: "flex-end"
-  },
-  summaryPills: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
     gap: 8
   },
-  summaryPill: {
-    borderRadius: 999,
-    backgroundColor: "rgba(234, 96, 81, 0.20)",
+  contextRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(234, 96, 81, 0.34)",
-    paddingHorizontal: 12,
-    paddingVertical: 7
+    borderColor: "rgba(99,130,190,0.08)",
+    backgroundColor: "rgba(99,130,190,0.03)",
+    paddingHorizontal: 14,
+    paddingVertical: 4
   },
-  summaryPillText: {
-    color: "#ffb2a8",
-    fontWeight: "800",
-    fontSize: 12
+  contextInput: {
+    flex: 1,
+    color: "#8494b2",
+    fontSize: 14,
+    paddingVertical: 8,
+    fontFamily: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif'
   },
-  summaryPillMuted: {
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 12,
-    paddingVertical: 7
+  contextOpenBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,212,170,0.10)"
   },
-  summaryPillMutedText: {
-    color: "#dbe1ec",
-    fontWeight: "700",
-    fontSize: 12
+  activityDivider: {
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(99,130,190,0.06)"
+  },
+  attachmentHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8
+  },
+  attachmentOpenBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    paddingVertical: 4
+  },
+  attachmentOpenText: {
+    color: "#8494b2",
+    fontSize: 12,
+    fontWeight: "600",
+    fontFamily: '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif'
+  },
+  logPayloadToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
+  taskWorkspaceMain: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: "#0c0f18"
+  },
+  taskWorkspaceMainScroll: {
+    flex: 1
   },
   summaryActionPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 8,
+    backgroundColor: "rgba(99,130,190,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.10)",
     paddingHorizontal: 12,
     paddingVertical: 7
   },
   summaryActionPillText: {
-    color: "#dbe1ec",
-    fontWeight: "700",
-    fontSize: 12
+    color: "#8494b2",
+    fontWeight: "600",
+    fontSize: 12,
+    fontFamily: F
   },
   blockerShell: {
-    borderRadius: 20,
-    overflow: "hidden"
-  },
-  inlinePanel: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    padding: 16,
-    gap: 14
-  },
-  inlinePanelHeader: {
-    gap: 4
-  },
-  inlinePanelHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    flexWrap: "wrap"
-  },
-  inlinePanelTitle: {
-    color: "#f8fafc",
-    fontSize: 17,
-    fontWeight: "800"
-  },
-  inlinePanelText: {
-    color: "#8b92a6",
-    fontSize: 13,
-    lineHeight: 19
-  },
-  inlineEditorGrid: {
-    gap: 14
-  },
-  inlineEditorActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap"
-  },
-  input: {
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#f8fafc"
-  },
-  createTitleInput: {
-    fontSize: 16,
-    fontWeight: "700"
-  },
-  compactControlsRow: {
-    gap: 14
+    overflow: "hidden"
   },
   fieldBlock: {
     gap: 8
   },
   fieldLabel: {
-    color: "#7d8597",
-    fontSize: 11,
-    fontWeight: "800",
+    color: "#3d4b68",
+    fontSize: 10,
+    fontWeight: "700",
     textTransform: "uppercase",
-    letterSpacing: 0.9
+    letterSpacing: 1.2,
+    fontFamily: F
   },
   choiceWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 6
   },
   choicePill: {
-    borderRadius: 12,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    paddingHorizontal: 12,
-    paddingVertical: 9
-  },
-  choicePillActive: {
-    backgroundColor: "rgba(234, 96, 81, 0.18)",
-    borderColor: "rgba(234, 96, 81, 0.34)"
-  },
-  choiceLabel: {
-    color: "#dbe1ec",
-    fontWeight: "700"
-  },
-  choiceLabelActive: {
-    color: "#ffb2a8"
-  },
-  primaryButtonSmall: {
-    borderRadius: 14,
-    backgroundColor: "#7a322b",
-    paddingHorizontal: 16,
-    paddingVertical: 11
-  },
-  primaryButtonText: {
-    color: "#f8fafc",
-    fontWeight: "800"
-  },
-  quietButton: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: "rgba(99,130,190,0.10)",
+    backgroundColor: "rgba(99,130,190,0.05)",
     paddingHorizontal: 12,
     paddingVertical: 8
   },
+  choicePillActive: {
+    backgroundColor: "rgba(0,212,170,0.10)",
+    borderColor: "rgba(0,212,170,0.25)"
+  },
+  choiceLabel: {
+    color: "#8494b2",
+    fontWeight: "600",
+    fontSize: 13,
+    fontFamily: F
+  },
+  choiceLabelActive: {
+    color: "#5df5d0"
+  },
+  primaryButtonSmall: {
+    borderRadius: 8,
+    backgroundColor: "#00856b",
+    paddingHorizontal: 16,
+    paddingVertical: 10
+  },
+  primaryButtonText: {
+    color: "#f0f4fa",
+    fontWeight: "700",
+    fontSize: 13,
+    fontFamily: F
+  },
+  quietButton: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(99,130,190,0.10)",
+    backgroundColor: "rgba(99,130,190,0.05)",
+    paddingHorizontal: 12,
+    paddingVertical: 7
+  },
   quietButtonText: {
-    color: "#dbe1ec",
+    color: "#8494b2",
     fontSize: 12,
-    fontWeight: "700"
+    fontWeight: "600",
+    fontFamily: F
   },
   buttonDisabled: {
-    opacity: 0.55
-  },
-  commentComposerInput: {
-    minHeight: 108,
-    textAlignVertical: "top",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    color: "#f8fafc"
-  },
-  commentToolbar: {
-    flexDirection: "row",
-    gap: 10,
-    flexWrap: "wrap",
-    alignItems: "center"
+    opacity: 0.45
   },
   uploadHint: {
-    color: "#9ea6b8"
+    color: "#526080",
+    fontSize: 13,
+    fontFamily: F
   },
   inlineError: {
-    color: "#fca5a5",
-    fontWeight: "700"
-  },
-  activityTabsRow: {
-    gap: 10,
-    paddingTop: 4
+    color: "#fda4af",
+    fontWeight: "600",
+    fontSize: 13,
+    fontFamily: F
   },
   activityTabs: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
     flexWrap: "wrap"
   },
   activityTab: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    borderRadius: 999,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: "rgba(99,130,190,0.10)",
+    backgroundColor: "rgba(99,130,190,0.04)",
     paddingHorizontal: 14,
-    paddingVertical: 9
+    paddingVertical: 8
   },
   activityTabActive: {
-    backgroundColor: "rgba(234, 96, 81, 0.18)",
-    borderColor: "rgba(234, 96, 81, 0.34)"
+    backgroundColor: "rgba(0,212,170,0.10)",
+    borderColor: "rgba(0,212,170,0.25)"
   },
   activityTabText: {
-    color: "#b7bfd1",
+    color: "#526080",
     fontSize: 13,
-    fontWeight: "800"
+    fontWeight: "700",
+    fontFamily: F
   },
   activityTabTextActive: {
-    color: "#ffe1db"
+    color: "#5df5d0"
   },
   activityTabCount: {
-    minWidth: 22,
+    minWidth: 20,
     textAlign: "center",
-    color: "#8b92a6",
+    color: "#3d4b68",
     fontSize: 12,
-    fontWeight: "800"
+    fontWeight: "700",
+    fontFamily: FM
   },
   activityTabCountActive: {
-    color: "#ffc6bb"
-  },
-  activityCaption: {
-    color: "#8b92a6",
-    fontSize: 13,
-    lineHeight: 19
+    color: "#00d4aa"
   },
   commentStack: {
-    gap: 12
+    gap: 10
   },
   commentCard: {
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.025)",
+    borderRadius: 12,
+    backgroundColor: "rgba(99,130,190,0.03)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.08)",
     padding: 14,
     gap: 10
   },
@@ -3162,127 +3000,122 @@ const styles = StyleSheet.create({
     flexWrap: "wrap"
   },
   authorBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4
   },
   authorBadgeAi: {
-    backgroundColor: "rgba(59, 130, 246, 0.26)"
+    backgroundColor: "rgba(91,141,239,0.15)"
   },
   authorBadgeHuman: {
-    backgroundColor: "rgba(16, 185, 129, 0.22)"
+    backgroundColor: "rgba(0,212,170,0.12)"
   },
   authorBadgeText: {
-    color: "#f8fafc",
+    color: "#dce4f0",
     fontSize: 11,
-    fontWeight: "800"
+    fontWeight: "700",
+    fontFamily: F
   },
   commentType: {
-    color: "#ffb2a8",
-    fontWeight: "800",
-    textTransform: "capitalize"
+    color: "#00d4aa",
+    fontWeight: "700",
+    textTransform: "capitalize",
+    fontSize: 12,
+    fontFamily: F
   },
   commentTimestamp: {
-    color: "#7d8597"
+    color: "#3d4b68",
+    fontSize: 12,
+    fontFamily: FM
   },
   commentBody: {
-    color: "#e5e7eb",
+    color: "#8494b2",
     lineHeight: 22,
-    fontSize: 15
+    fontSize: 14,
+    fontFamily: F
   },
   attachmentCard: {
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderRadius: 10,
+    backgroundColor: "rgba(99,130,190,0.04)",
     padding: 12,
     gap: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
+    borderColor: "rgba(99,130,190,0.08)"
   },
   attachmentTitle: {
-    color: "#f8fafc",
-    fontWeight: "800"
+    color: "#dce4f0",
+    fontWeight: "700",
+    fontSize: 13,
+    fontFamily: F
   },
   attachmentMeta: {
-    color: "#9ea6b8"
+    color: "#526080",
+    fontSize: 12,
+    fontFamily: F
   },
   attachmentImage: {
     width: "100%",
     height: 220,
-    borderRadius: 16,
-    backgroundColor: "#1f2937"
+    borderRadius: 10,
+    backgroundColor: "#0e1220"
   },
   videoFrame: {
     width: "100%",
     height: 240,
-    borderRadius: 16,
+    borderRadius: 10,
     overflow: "hidden",
-    backgroundColor: "#081018"
+    backgroundColor: "#060810"
   },
   previewCard: {
-    borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.20)",
+    borderRadius: 10,
+    backgroundColor: "rgba(6,8,16,0.60)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(99,130,190,0.08)",
     padding: 12,
     gap: 6
   },
-  previewLabel: {
-    color: "#8b92a6",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase"
-  },
   previewText: {
-    color: "#e5e7eb",
-    lineHeight: 20
+    color: "#8494b2",
+    lineHeight: 20,
+    fontSize: 13,
+    fontFamily: F
   },
   logPayloadCard: {
-    borderRadius: 14,
-    backgroundColor: "rgba(7, 10, 16, 0.78)",
+    borderRadius: 10,
+    backgroundColor: "rgba(6,8,16,0.70)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(99,130,190,0.06)",
     padding: 12,
     gap: 10
   },
-  logPayloadHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap"
-  },
   logPayloadText: {
-    color: "#d6dcea",
+    color: "#8494b2",
     fontSize: 12,
     lineHeight: 18,
     fontFamily: Platform.select({
       ios: "Menlo",
       android: "monospace",
-      default: "monospace"
+      default: "JetBrains Mono, SF Mono, Menlo, monospace"
     })
   },
   emptyStateCard: {
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    padding: 16,
-    gap: 8
-  },
-  emptyStateTitle: {
-    color: "#f8fafc",
-    fontSize: 18,
-    fontWeight: "800"
+    borderColor: "rgba(99,130,190,0.08)",
+    backgroundColor: "rgba(99,130,190,0.03)",
+    padding: 20,
+    gap: 6
   },
   emptyStateText: {
-    color: "#9ea6b8",
-    lineHeight: 22
+    color: "#526080",
+    lineHeight: 22,
+    fontSize: 14,
+    fontFamily: F
   },
   composerDock: {
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.07)",
-    backgroundColor: "#101216",
+    borderTopColor: "rgba(99,130,190,0.08)",
+    backgroundColor: "#080b13",
     paddingHorizontal: 28,
     paddingTop: 14,
     paddingBottom: 18,
@@ -3291,167 +3124,117 @@ const styles = StyleSheet.create({
   composerDockRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 14
-  },
-  composerAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#315d3a",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4
+    gap: 12
   },
   composerInputShell: {
     flex: 1,
-    minHeight: 58,
-    borderRadius: 24,
+    minHeight: 52,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "#171a20",
+    borderColor: "rgba(99,130,190,0.12)",
+    backgroundColor: "#0e1220",
     paddingLeft: 16,
-    paddingRight: 10,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingRight: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 12
+    gap: 10
   },
   composerInput: {
     flex: 1,
-    minHeight: 28,
-    maxHeight: 112,
-    color: "#f8fafc",
-    fontSize: 16,
+    minHeight: 26,
+    maxHeight: 100,
+    color: "#dce4f0",
+    fontSize: 14,
     paddingTop: 8,
     paddingBottom: 8,
-    textAlignVertical: "center"
+    textAlignVertical: "center",
+    fontFamily: F
   },
   composerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     paddingBottom: 2
   },
   composerIconButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "rgba(99,130,190,0.06)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)"
+    borderColor: "rgba(99,130,190,0.10)"
   },
   composerSubmitButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#7a322b"
+    backgroundColor: "#00856b"
   },
   composerDockMuted: {
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.07)",
-    backgroundColor: "#101216",
+    borderTopColor: "rgba(99,130,190,0.08)",
+    backgroundColor: "#080b13",
     paddingHorizontal: 28,
-    paddingVertical: 18
+    paddingVertical: 16
   },
   composerDockMutedText: {
-    color: "#8b92a6",
+    color: "#3d4b68",
     fontSize: 13,
-    lineHeight: 20
-  },
-  sideRailCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-    padding: 18,
-    gap: 14
-  },
-  sideRailCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12
-  },
-  sideRailDirtyPill: {
-    borderRadius: 999,
-    backgroundColor: "rgba(234, 96, 81, 0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(234, 96, 81, 0.34)",
-    paddingHorizontal: 10,
-    paddingVertical: 4
-  },
-  sideRailDirtyPillText: {
-    color: "#ffb2a8",
-    fontSize: 11,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.6
-  },
-  sideRailTitle: {
-    color: "#f8fafc",
-    fontSize: 16,
-    fontWeight: "800"
+    lineHeight: 20,
+    fontFamily: F
   },
   sideRailItem: {
-    gap: 5,
+    gap: 4,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)"
+    borderBottomColor: "rgba(99,130,190,0.06)"
   },
   sideRailLabel: {
-    color: "#7d8597",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.9,
-    textTransform: "uppercase"
+    color: "#3d4b68",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    fontFamily: F
   },
   sideRailValue: {
-    color: "#e5e7eb",
-    fontSize: 15,
-    lineHeight: 22
+    color: "#8494b2",
+    fontSize: 14,
+    lineHeight: 21,
+    fontFamily: F
   },
   sideRailValueAccent: {
-    color: "#ffb2a8"
-  },
-  sideRailLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-start"
-  },
-  sideRailLinkText: {
-    color: "#dbe1ec",
-    fontSize: 14,
-    fontWeight: "700"
+    color: "#f43f5e"
   },
   modalScrim: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.62)",
+    backgroundColor: "rgba(3,4,8,0.72)",
     alignItems: "center",
     justifyContent: "center",
     padding: 24
   },
   modalCard: {
     width: "100%",
-    maxWidth: 780,
-    borderRadius: 24,
-    backgroundColor: "#16181d",
+    maxWidth: 720,
+    borderRadius: 16,
+    backgroundColor: "#0e1220",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(99,130,190,0.12)",
     overflow: "hidden"
   },
   modalCardSmall: {
     width: "100%",
-    maxWidth: 560,
-    borderRadius: 24,
-    backgroundColor: "#16181d",
+    maxWidth: 520,
+    borderRadius: 16,
+    backgroundColor: "#0e1220",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
+    borderColor: "rgba(99,130,190,0.12)",
     overflow: "hidden"
   },
   modalHeader: {
@@ -3459,101 +3242,112 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 16,
     alignItems: "flex-start",
-    paddingHorizontal: 22,
-    paddingTop: 20,
+    paddingHorizontal: 24,
+    paddingTop: 22,
     paddingBottom: 16
   },
   modalTitle: {
-    color: "#f8fafc",
-    fontSize: 24,
-    fontWeight: "800"
+    color: "#f0f4fa",
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    fontFamily: F
   },
   modalSubtle: {
-    color: "#8b92a6",
+    color: "#526080",
     fontSize: 13,
     lineHeight: 19,
-    marginTop: 4
+    marginTop: 4,
+    fontFamily: F
   },
   modalBody: {
-    paddingHorizontal: 22,
+    paddingHorizontal: 24,
     paddingBottom: 20,
     gap: 14
   },
   modalTitleInput: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: "rgba(99,130,190,0.12)",
+    backgroundColor: "rgba(99,130,190,0.04)",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: "#f8fafc",
-    fontSize: 26,
-    fontWeight: "800"
+    color: "#f0f4fa",
+    fontSize: 22,
+    fontWeight: "800",
+    fontFamily: F
   },
   modalTextInput: {
-    borderRadius: 16,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: "rgba(99,130,190,0.10)",
+    backgroundColor: "rgba(99,130,190,0.04)",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: "#f8fafc",
-    fontSize: 16
+    color: "#dce4f0",
+    fontSize: 14,
+    fontFamily: F
   },
   modalChoiceRow: {
     gap: 16
   },
   modalFooter: {
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 22,
-    paddingVertical: 18,
+    borderTopColor: "rgba(99,130,190,0.08)",
+    paddingHorizontal: 24,
+    paddingVertical: 16,
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 12
+    gap: 10
   },
   modalGhostButton: {
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 20,
-    paddingVertical: 12
+    borderRadius: 8,
+    backgroundColor: "rgba(99,130,190,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(99,130,190,0.10)",
+    paddingHorizontal: 18,
+    paddingVertical: 10
   },
   modalGhostButtonText: {
-    color: "#e5e7eb",
-    fontWeight: "700",
-    fontSize: 15
+    color: "#8494b2",
+    fontWeight: "600",
+    fontSize: 14,
+    fontFamily: F
   },
   modalPrimaryButton: {
-    borderRadius: 14,
-    backgroundColor: "#7a322b",
-    paddingHorizontal: 20,
-    paddingVertical: 12
+    borderRadius: 8,
+    backgroundColor: "#00856b",
+    paddingHorizontal: 18,
+    paddingVertical: 10
   },
   modalPrimaryButtonText: {
-    color: "#f8fafc",
-    fontWeight: "800",
-    fontSize: 15
+    color: "#f0f4fa",
+    fontWeight: "700",
+    fontSize: 14,
+    fontFamily: F
   },
   modalDangerButton: {
-    borderRadius: 14,
-    backgroundColor: "#6f1d1b",
+    borderRadius: 8,
+    backgroundColor: "rgba(244,63,94,0.15)",
     borderWidth: 1,
-    borderColor: "rgba(248, 113, 113, 0.28)",
-    paddingHorizontal: 20,
-    paddingVertical: 12
+    borderColor: "rgba(244,63,94,0.25)",
+    paddingHorizontal: 18,
+    paddingVertical: 10
   },
   modalDangerButtonText: {
-    color: "#ffe4e6",
-    fontWeight: "800",
-    fontSize: 15
+    color: "#fda4af",
+    fontWeight: "700",
+    fontSize: 14,
+    fontFamily: F
   },
   deleteConfirmText: {
-    color: "#d8deea",
+    color: "#8494b2",
     fontSize: 14,
-    lineHeight: 21
+    lineHeight: 22,
+    fontFamily: F
   },
   deleteConfirmStrong: {
-    color: "#f8fafc",
-    fontWeight: "800"
+    color: "#dce4f0",
+    fontWeight: "700"
   }
 });

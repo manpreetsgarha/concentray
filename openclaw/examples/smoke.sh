@@ -16,6 +16,7 @@ cat > "$tmp_store" <<'JSON'
       "Status": "Pending",
       "Created_By": "Human",
       "Assignee": "AI",
+      "Execution_Mode": "Autonomous",
       "Context_Link": null,
       "AI_Urgency": 1,
       "Input_Request": null,

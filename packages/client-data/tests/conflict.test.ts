@@ -9,6 +9,7 @@ function baseTask(): Task {
     status: "Pending",
     createdBy: "Human",
     assignee: "AI",
+    executionMode: "Autonomous",
     createdAt: "2026-03-03T12:00:00Z",
     updatedAt: "2026-03-03T12:00:00Z",
     updatedBy: "Human",
@@ -16,7 +17,8 @@ function baseTask(): Task {
     fieldClock: {
       title: "2026-03-03T12:00:00Z",
       status: "2026-03-03T12:00:00Z",
-      assignee: "2026-03-03T12:00:00Z"
+      assignee: "2026-03-03T12:00:00Z",
+      executionMode: "2026-03-03T12:00:00Z"
     }
   };
 }
@@ -29,7 +31,8 @@ describe("mergeTaskFieldLevel", () => {
       fieldClock: {
         title: "2026-03-03T12:10:00Z",
         status: "2026-03-03T12:00:00Z",
-        assignee: "2026-03-03T12:00:00Z"
+        assignee: "2026-03-03T12:00:00Z",
+        executionMode: "2026-03-03T12:00:00Z"
       },
       updatedAt: "2026-03-03T12:10:00Z",
       version: 2
@@ -41,7 +44,8 @@ describe("mergeTaskFieldLevel", () => {
       fieldClock: {
         title: "2026-03-03T12:00:00Z",
         status: "2026-03-03T12:11:00Z",
-        assignee: "2026-03-03T12:00:00Z"
+        assignee: "2026-03-03T12:00:00Z",
+        executionMode: "2026-03-03T12:00:00Z"
       },
       updatedAt: "2026-03-03T12:11:00Z",
       updatedBy: "AI" as const,

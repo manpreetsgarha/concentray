@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 from concentray_cli.context import build_context_envelope
 from concentray_cli.local_api_server import run_local_api_server
-from concentray_cli.models import Actor, Comment, CommentType, Task, TaskStatus, UpdatedBy, iso_now
+from concentray_cli.models import Actor, Comment, CommentType, Task, TaskExecutionMode, TaskStatus, UpdatedBy, iso_now
 from concentray_cli.providers.local_json import LocalJsonProvider
 from concentray_cli.provider_factory import make_provider
 from concentray_cli.skills.runner import run_skill
@@ -449,6 +449,27 @@ def parse_statuses(raw: str) -> List[TaskStatus]:
     return result
 
 
+def parse_execution_modes(raw: str) -> List[TaskExecutionMode]:
+    mapping = {
+        "autonomous": TaskExecutionMode.AUTONOMOUS,
+        "session": TaskExecutionMode.SESSION,
+    }
+    result: List[TaskExecutionMode] = []
+    for item in raw.split(","):
+        key = item.strip().lower()
+        if key not in mapping:
+            raise typer.BadParameter(f"Unsupported execution mode '{item}'")
+        result.append(mapping[key])
+    return result
+
+
+def parse_execution_mode(raw: str) -> TaskExecutionMode:
+    modes = parse_execution_modes(raw)
+    if len(modes) != 1:
+        raise typer.BadParameter("Execution mode must be one of: autonomous, session")
+    return modes[0]
+
+
 def parse_actor(raw: str) -> Actor:
     mapping = {
         "ai": Actor.AI,
@@ -721,6 +742,7 @@ def agent_install(
 def task_get_next(
     assignee: str = typer.Option("ai", "--assignee"),
     status: str = typer.Option("pending,in_progress", "--status"),
+    execution_mode: str = typer.Option("session,autonomous", "--execution-mode"),
     worker_id: Optional[str] = typer.Option(None, "--worker-id"),
     lease_seconds: int = typer.Option(1800, "--lease-seconds"),
     as_json: bool = typer.Option(False, "--json"),
@@ -729,6 +751,7 @@ def task_get_next(
     next_task = provider.get_next_task(
         assignee=assignee,
         statuses=parse_statuses(status),
+        execution_modes=parse_execution_modes(execution_mode),
         worker_id=normalize_worker_id(worker_id),
         lease_seconds=lease_seconds,
     )
@@ -746,6 +769,7 @@ def task_claim_next(
     worker_id: str = typer.Option(..., "--worker-id"),
     assignee: str = typer.Option("ai", "--assignee"),
     status: str = typer.Option("pending,in_progress", "--status"),
+    execution_mode: str = typer.Option("autonomous", "--execution-mode"),
     lease_seconds: int = typer.Option(1800, "--lease-seconds"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -755,6 +779,7 @@ def task_claim_next(
         worker_id=worker_id,
         assignee=assignee,
         statuses=parse_statuses(status),
+        execution_modes=parse_execution_modes(execution_mode),
         updated_by=updated_by,
         lease_seconds=lease_seconds,
     )
@@ -792,6 +817,7 @@ def task_update(
     task_id: str,
     status: Optional[str] = typer.Option(None, "--status"),
     assignee: Optional[str] = typer.Option(None, "--assignee"),
+    execution_mode: Optional[str] = typer.Option(None, "--execution-mode"),
     urgency: Optional[int] = typer.Option(None, "--urgency"),
     input_request: Optional[str] = typer.Option(None, "--input-request"),
     worker_id: Optional[str] = typer.Option(None, "--worker-id"),
@@ -821,6 +847,9 @@ def task_update(
 
     if assignee is not None:
         patch_fields["assignee"] = parse_actor(assignee)
+
+    if execution_mode is not None:
+        patch_fields["execution_mode"] = parse_execution_mode(execution_mode)
 
     if urgency is not None:
         if urgency < 1 or urgency > 5:

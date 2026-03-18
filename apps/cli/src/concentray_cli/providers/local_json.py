@@ -5,7 +5,17 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from concentray_cli.models import Actor, Comment, Store, Task, TaskStatus, UpdatedBy, claim_is_stale, iso_now
+from concentray_cli.models import (
+    Actor,
+    Comment,
+    Store,
+    Task,
+    TaskExecutionMode,
+    TaskStatus,
+    UpdatedBy,
+    claim_is_stale,
+    iso_now,
+)
 from concentray_cli.providers.base import Provider
 
 try:
@@ -46,10 +56,26 @@ class LocalJsonProvider(Provider):
         temp.write_text(store.model_dump_json(indent=2, by_alias=True))
         temp.replace(self.store_path)
 
-    def _matches_assignee_and_status(self, task: Task, assignee: str, status_set: set[str]) -> bool:
+    def _matches_queue_filters(
+        self,
+        task: Task,
+        *,
+        assignee: str,
+        status_set: set[str],
+        execution_mode_set: Optional[set[str]] = None,
+    ) -> bool:
         task_assignee = task.assignee.value if isinstance(task.assignee, Actor) else str(task.assignee)
         task_status = task.status.value if isinstance(task.status, TaskStatus) else str(task.status)
-        return task_assignee.lower() == assignee.lower() and task_status in status_set
+        task_execution_mode = (
+            task.execution_mode.value if isinstance(task.execution_mode, TaskExecutionMode) else str(task.execution_mode)
+        )
+        if task_assignee.lower() != assignee.lower():
+            return False
+        if task_status not in status_set:
+            return False
+        if execution_mode_set and task_execution_mode not in execution_mode_set:
+            return False
+        return True
 
     def _claim_conflicts(self, task: Task, *, worker_id: Optional[str], lease_seconds: int) -> bool:
         if not task.worker_id:
@@ -63,16 +89,27 @@ class LocalJsonProvider(Provider):
         assignee: str,
         statuses: Iterable[TaskStatus],
         *,
+        execution_modes: Optional[Iterable[TaskExecutionMode]] = None,
         worker_id: Optional[str] = None,
         lease_seconds: int = 1800,
     ) -> Optional[Task]:
         store = self._load()
         status_set = {s.value if isinstance(s, TaskStatus) else str(s) for s in statuses}
+        execution_mode_set = (
+            {mode.value if isinstance(mode, TaskExecutionMode) else str(mode) for mode in execution_modes}
+            if execution_modes is not None
+            else None
+        )
 
         for task in store.tasks:
             if task.deleted_at:
                 continue
-            if not self._matches_assignee_and_status(task, assignee, status_set):
+            if not self._matches_queue_filters(
+                task,
+                assignee=assignee,
+                status_set=status_set,
+                execution_mode_set=execution_mode_set,
+            ):
                 continue
             if self._claim_conflicts(task, worker_id=worker_id, lease_seconds=lease_seconds):
                 continue
@@ -86,6 +123,7 @@ class LocalJsonProvider(Provider):
         worker_id: str,
         assignee: str,
         statuses: Iterable[TaskStatus],
+        execution_modes: Optional[Iterable[TaskExecutionMode]] = None,
         updated_by: UpdatedBy,
         lease_seconds: int = 1800,
     ) -> Optional[Task]:
@@ -94,6 +132,11 @@ class LocalJsonProvider(Provider):
             raise ValueError("worker_id is required")
 
         status_set = {s.value if isinstance(s, TaskStatus) else str(s) for s in statuses}
+        execution_mode_set = (
+            {mode.value if isinstance(mode, TaskExecutionMode) else str(mode) for mode in execution_modes}
+            if execution_modes is not None
+            else None
+        )
 
         with self._store_lock():
             store = self._load()
@@ -102,7 +145,12 @@ class LocalJsonProvider(Provider):
             for task in store.tasks:
                 if task.deleted_at:
                     continue
-                if not self._matches_assignee_and_status(task, assignee, status_set):
+                if not self._matches_queue_filters(
+                    task,
+                    assignee=assignee,
+                    status_set=status_set,
+                    execution_mode_set=execution_mode_set,
+                ):
                     continue
                 if task.worker_id == claim_worker and not claim_is_stale(task.claimed_at, lease_seconds=lease_seconds):
                     return task
@@ -110,7 +158,12 @@ class LocalJsonProvider(Provider):
             for index, task in enumerate(store.tasks):
                 if task.deleted_at:
                     continue
-                if not self._matches_assignee_and_status(task, assignee, status_set):
+                if not self._matches_queue_filters(
+                    task,
+                    assignee=assignee,
+                    status_set=status_set,
+                    execution_mode_set=execution_mode_set,
+                ):
                     continue
                 if self._claim_conflicts(task, worker_id=claim_worker, lease_seconds=lease_seconds):
                     continue

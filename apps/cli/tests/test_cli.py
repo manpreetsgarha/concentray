@@ -116,6 +116,67 @@ def test_task_claim_next_claims_for_worker(tmp_path: Path) -> None:
     assert payload["task"]["Claimed_At"] is not None
 
 
+def test_task_claim_next_skips_session_task_by_default(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    seed_store(store)
+    seeded = json.loads(store.read_text())
+    seeded["tasks"][0]["Execution_Mode"] = "Session"
+    store.write_text(json.dumps(seeded))
+
+    env = {
+        "TM_PROVIDER": "local_json",
+        "TM_LOCAL_STORE": str(store),
+        "TM_UPDATED_BY": "AI",
+    }
+
+    result = runner.invoke(
+        app,
+        ["task", "claim-next", "--worker-id", "codex-main", "--assignee", "ai", "--status", "pending,in_progress", "--json"],
+        env={**os.environ, **env},
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["task"] is None
+
+
+def test_task_claim_next_can_claim_session_task_when_requested(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    seed_store(store)
+    seeded = json.loads(store.read_text())
+    seeded["tasks"][0]["Execution_Mode"] = "Session"
+    store.write_text(json.dumps(seeded))
+
+    env = {
+        "TM_PROVIDER": "local_json",
+        "TM_LOCAL_STORE": str(store),
+        "TM_UPDATED_BY": "AI",
+    }
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "claim-next",
+            "--worker-id",
+            "codex-main",
+            "--assignee",
+            "ai",
+            "--status",
+            "pending,in_progress",
+            "--execution-mode",
+            "session",
+            "--json",
+        ],
+        env={**os.environ, **env},
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["task"]["Task_ID"] == "task-1"
+    assert payload["task"]["Execution_Mode"] == "Session"
+
+
 def test_get_next_skips_live_claim_from_other_worker(tmp_path: Path) -> None:
     store = tmp_path / "store.json"
     seed_store(store)

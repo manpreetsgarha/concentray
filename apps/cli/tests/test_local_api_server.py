@@ -209,3 +209,73 @@ def test_local_api_task_delete_hides_task_and_thread(tmp_path: Path, monkeypatch
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_local_api_claim_next_respects_execution_mode(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        default_store = tmp_path / "default.json"
+
+        status, _ = _request(
+            base_url,
+            "POST",
+            "/workspaces",
+            {"name": "default", "store": str(default_store), "set_active": True},
+        )
+        assert status == 201
+
+        status, payload = _request(
+            base_url,
+            "POST",
+            "/tasks",
+            {
+                "title": "Guided task",
+                "created_by": "Human",
+                "assignee": "AI",
+                "execution_mode": "session",
+                "ai_urgency": 4,
+            },
+        )
+        assert status == 201
+        assert payload["task"]["Execution_Mode"] == "Session"
+
+        status, payload = _request(
+            base_url,
+            "POST",
+            "/tasks/claim-next",
+            {"worker_id": "openclaw-main", "assignee": "ai", "status": ["pending", "in_progress"]},
+        )
+        assert status == 200
+        assert payload["task"] is None
+
+        status, payload = _request(
+            base_url,
+            "POST",
+            "/tasks/claim-next",
+            {
+                "worker_id": "codex-main",
+                "assignee": "ai",
+                "status": ["pending", "in_progress"],
+                "execution_mode": ["session"],
+            },
+        )
+        assert status == 200
+        assert payload["task"]["Title"] == "Guided task"
+        assert payload["task"]["Execution_Mode"] == "Session"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

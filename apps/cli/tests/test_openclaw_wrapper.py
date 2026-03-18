@@ -17,6 +17,7 @@ def seed_store(path: Path) -> None:
                         "Status": "Pending",
                         "Created_By": "Human",
                         "Assignee": "AI",
+                        "Execution_Mode": "Autonomous",
                         "Context_Link": None,
                         "AI_Urgency": 2,
                         "Input_Request": None,
@@ -82,6 +83,7 @@ def test_openclaw_wrapper_round_trip(tmp_path: Path) -> None:
     assert payload["task"]["Task_ID"] == "task-wrapper-1"
     assert payload["task"]["Worker_ID"] == "openclaw-wrapper"
     assert payload["task"]["Claimed_At"] is not None
+    assert payload["task"]["Execution_Mode"] == "Autonomous"
 
     proc = invoke_tool(
         repo_root,
@@ -190,3 +192,52 @@ def test_openclaw_wrapper_rejects_invalid_payload(tmp_path: Path) -> None:
     payload = json.loads(proc.stdout)
     assert payload["ok"] is False
     assert "assignee" in payload["error"].lower()
+
+
+def test_openclaw_wrapper_claims_session_task_only_when_requested(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    store = tmp_path / "store.json"
+    seed_store(store)
+    seeded = json.loads(store.read_text())
+    seeded["tasks"][0]["Execution_Mode"] = "Session"
+    store.write_text(json.dumps(seeded))
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "TM_PROVIDER": "local_json",
+            "TM_LOCAL_STORE": str(store),
+            "TM_SKILLS_ALLOWLIST": str(
+                repo_root / "apps" / "cli" / "src" / "concentray_cli" / "skills" / "skills.yaml"
+            ),
+            "TM_UPDATED_BY": "AI",
+            "PYTHONPATH": str(repo_root / "apps" / "cli" / "src"),
+        }
+    )
+
+    proc = invoke_tool(
+        repo_root,
+        env,
+        "task_claim_next",
+        {"worker_id": "openclaw-wrapper", "assignee": "ai", "status": ["pending", "in_progress"]},
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is True
+    assert payload["task"] is None
+
+    proc = invoke_tool(
+        repo_root,
+        env,
+        "task_claim_next",
+        {
+            "worker_id": "openclaw-wrapper",
+            "assignee": "ai",
+            "status": ["pending", "in_progress"],
+            "execution_mode": ["session"],
+        },
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is True
+    assert payload["task"]["Execution_Mode"] == "Session"

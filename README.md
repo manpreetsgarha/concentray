@@ -169,7 +169,7 @@ Human:
 
 Agent:
 ```bash
-./scripts/concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --json
+./scripts/concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --execution-mode autonomous --json
 ```
 
 That is the core v1 loop.
@@ -244,13 +244,13 @@ Start only the local API:
 Claim next task for AI:
 
 ```bash
-./scripts/concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --json
+./scripts/concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --execution-mode autonomous --json
 ```
 
 Inspect next task for AI without claiming it:
 
 ```bash
-./scripts/concentray task get-next --assignee ai --status pending,in_progress --json
+./scripts/concentray task get-next --assignee ai --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
 Get a task with comments:
@@ -348,7 +348,8 @@ Supported practical unblock request types:
 Worker claim behavior:
 - `worker_id` identifies which agent instance currently owns the task
 - `claimed_at` records when that claim was taken
-- `task claim-next` is the safe pickup path for active agents
+- `task claim-next --execution-mode autonomous` is the safe pickup path for unattended agents
+- `task claim-next --execution-mode session,autonomous` is the live-session pickup path when you explicitly ask Claude/Codex for the next task
 - `task get-next` is for read-only inspection
 - claims clear automatically when a task becomes `blocked`, `done`, or is reassigned away from `AI`
 

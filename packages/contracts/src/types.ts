@@ -1,4 +1,5 @@
 export type TaskStatus = "Pending" | "In Progress" | "Blocked" | "Done";
+export type TaskExecutionMode = "Autonomous" | "Session";
 
 export type Actor = "Human" | "AI";
 
@@ -12,6 +13,7 @@ export interface TaskRecord {
   Status: TaskStatus;
   Created_By: Actor;
   Assignee: Actor;
+  Execution_Mode: TaskExecutionMode;
   Context_Link?: string;
   AI_Urgency?: number;
   Input_Request?: string;

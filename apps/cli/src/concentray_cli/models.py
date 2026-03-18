@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Actor(str, Enum):
@@ -26,6 +26,11 @@ class TaskStatus(str, Enum):
     DONE = "Done"
 
 
+class TaskExecutionMode(str, Enum):
+    AUTONOMOUS = "Autonomous"
+    SESSION = "Session"
+
+
 class CommentType(str, Enum):
     MESSAGE = "message"
     LOG = "log"
@@ -39,6 +44,7 @@ class Task(BaseModel):
     status: TaskStatus = Field(alias="Status")
     created_by: Actor = Field(alias="Created_By")
     assignee: Actor = Field(alias="Assignee")
+    execution_mode: TaskExecutionMode = Field(default=TaskExecutionMode.AUTONOMOUS, alias="Execution_Mode")
     context_link: Optional[str] = Field(default=None, alias="Context_Link")
     ai_urgency: Optional[int] = Field(default=None, alias="AI_Urgency")
     input_request: Optional[Dict[str, Any]] = Field(default=None, alias="Input_Request")
@@ -57,6 +63,21 @@ class Task(BaseModel):
         "populate_by_name": True,
         "use_enum_values": True,
     }
+
+    @model_validator(mode="before")
+    @classmethod
+    def set_default_execution_mode(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if "Execution_Mode" in data or "execution_mode" in data:
+            return data
+
+        raw_assignee = data.get("Assignee", data.get("assignee"))
+        assignee = raw_assignee.value if hasattr(raw_assignee, "value") else str(raw_assignee or "")
+        data["Execution_Mode"] = (
+            TaskExecutionMode.SESSION.value if assignee.lower() == Actor.HUMAN.value.lower() else TaskExecutionMode.AUTONOMOUS.value
+        )
+        return data
 
     @field_validator("ai_urgency")
     @classmethod

@@ -25,7 +25,8 @@ Do not use this skill for trivial one-shot tasks that can be completed directly 
 ## Operating loop
 
 1. Claim the next task with a stable worker id:
-   - `./scripts/concentray task claim-next --worker-id codex-$(hostname -s) --assignee ai --status pending,in_progress --json`
+   - Live Claude/Codex session: `./scripts/concentray task claim-next --worker-id codex-$(hostname -s) --assignee ai --status pending,in_progress --execution-mode session,autonomous --json`
+   - Unattended loop: `./scripts/concentray task claim-next --worker-id codex-$(hostname -s) --assignee ai --status pending,in_progress --execution-mode autonomous --json`
 2. Read the task and thread:
    - `./scripts/concentray task get <task_id> --with-comments --json`
 3. Export structured context:
@@ -39,6 +40,12 @@ Do not use this skill for trivial one-shot tasks that can be completed directly 
 Always prefer structured status updates over burying state in free-form comments.
 
 Use `task get-next` only when you need a read-only preview of the queue and do not want to claim work yet.
+
+## Execution mode rules
+
+- `Autonomous`: safe for unattended pickup by OpenClaw or another background agent loop.
+- `Session`: only pull this when a human explicitly asks a live Claude/Codex session for the next task.
+- Keep session-only work out of unattended loops by filtering `--execution-mode autonomous`.
 
 ## Task status rules
 
@@ -112,4 +119,4 @@ Read [references/contracts.md](references/contracts.md) for command contracts an
 If this skill is adapted for Claude Code, keep the same loop and command surface.
 
 The key instruction is:
-"Use Concentray as the source of truth for task state. Start with `task claim-next`, read `context export`, post logs with `comment add`, and update status with `task update`."
+"Use Concentray as the source of truth for task state. Start with `task claim-next` using the right `--execution-mode`, read `context export`, post logs with `comment add`, and update status with `task update`."

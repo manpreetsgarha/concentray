@@ -85,6 +85,7 @@ def default_worker_id(prefix: str = "openclaw") -> str:
 def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
     if tool == "task_get_next":
         statuses = payload.get("status", ["pending", "in_progress"])
+        execution_modes = payload.get("execution_mode", ["autonomous"])
         args = [
             "task",
             "get-next",
@@ -92,6 +93,8 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
             payload.get("assignee", "ai"),
             "--status",
             ",".join(statuses),
+            "--execution-mode",
+            ",".join(execution_modes),
         ]
         if payload.get("worker_id"):
             args.extend(["--worker-id", str(payload["worker_id"])])
@@ -102,6 +105,7 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
 
     if tool == "task_claim_next":
         statuses = payload.get("status", ["pending", "in_progress"])
+        execution_modes = payload.get("execution_mode", ["autonomous"])
         worker_id = payload.get("worker_id") or default_worker_id()
         args = [
             "task",
@@ -112,6 +116,8 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
             payload.get("assignee", "ai"),
             "--status",
             ",".join(statuses),
+            "--execution-mode",
+            ",".join(execution_modes),
         ]
         if payload.get("lease_seconds") is not None:
             args.extend(["--lease-seconds", str(payload["lease_seconds"])])
@@ -131,6 +137,8 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
             args.extend(["--status", payload["status"]])
         if payload.get("assignee"):
             args.extend(["--assignee", payload["assignee"]])
+        if payload.get("execution_mode"):
+            args.extend(["--execution-mode", payload["execution_mode"]])
         if payload.get("urgency") is not None:
             args.extend(["--urgency", str(payload["urgency"])])
         if "worker_id" in payload and payload["worker_id"] is not None:

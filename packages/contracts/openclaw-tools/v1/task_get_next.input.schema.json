@@ -10,6 +10,11 @@
       "items": { "type": "string", "enum": ["pending", "in_progress", "blocked", "done"] },
       "minItems": 1
     },
+    "execution_mode": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["autonomous", "session"] },
+      "minItems": 1
+    },
     "worker_id": { "type": "string", "minLength": 1 },
     "lease_seconds": { "type": "integer", "minimum": 1 }
   },

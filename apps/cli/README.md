@@ -90,13 +90,13 @@ v1 is intentionally local-first.
 ## Example
 
 ```bash
-concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --json
+concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --execution-mode autonomous --json
 ```
 
 Read-only queue inspection still uses:
 
 ```bash
-concentray task get-next --assignee ai --status pending,in_progress --json
+concentray task get-next --assignee ai --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
 Delete a task:
@@ -117,7 +117,9 @@ Claim semantics:
 
 - `worker_id` identifies the active agent instance
 - `claimed_at` records when work was claimed
-- `task claim-next` is the safe pickup path
+- `execution_mode=autonomous` is the unattended/OpenClaw queue
+- `execution_mode=session` is reserved for a live Claude/Codex session that was explicitly asked to pull the next task
+- `task claim-next` defaults to `--execution-mode autonomous`
 - claims clear automatically on `blocked`, `done`, or reassignment away from `AI`
 
 ## Local shared API (for web + terminal collaboration)

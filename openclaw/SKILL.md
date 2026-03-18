@@ -14,8 +14,8 @@ Only fall back to direct shell CLI commands if plugin tools are unavailable.
 4. If a different workspace is active, prefer `TM_WORKSPACE=<name>` or `TM_LOCAL_STORE=<absolute path>` over guessing.
 
 ## Canonical command contracts
-- `task claim-next --worker-id <worker_id> --assignee ai --status pending,in_progress --json`
-- `task get-next --assignee ai --status pending,in_progress --json`
+- `task claim-next --worker-id <worker_id> --assignee ai --status pending,in_progress --execution-mode autonomous --json`
+- `task get-next --assignee ai --status pending,in_progress --execution-mode autonomous --json`
 - `task get <task_id> --with-comments --json`
 - `task update <task_id> --status ... --assignee ... --urgency ... --input-request ... --json`
 - `comment add <task_id> --message ... --type ... --attachment ... --metadata ... --json`
@@ -28,14 +28,14 @@ Only fall back to direct shell CLI commands if plugin tools are unavailable.
 3. Always read task context before changing status.
 4. There is no separate log tool. Post verbose execution traces through `comment_add` with `type="log"`. Put raw tool payloads in `metadata` so the operator can keep the main comment thread clean.
 5. If blocked, write `Status=Blocked` and an `Input_Request` payload.
-6. Prefer `Assignee=AI` only when AI can act immediately.
+6. Keep unattended OpenClaw pickup on `Execution_Mode=Autonomous`. Use `Session` only for tasks that should wait for a live Claude/Codex session.
 7. Keep outputs structured JSON for reliable downstream parsing.
 
 ## Fallback shell usage
 If plugin tools are unavailable, run the repo-local wrapper from the project root:
 
-- `./scripts/concentray task claim-next --worker-id openclaw-$(hostname -s) --assignee ai --status pending,in_progress --json`
-- `./scripts/concentray task get-next --assignee ai --status pending,in_progress --json`
+- `./scripts/concentray task claim-next --worker-id openclaw-$(hostname -s) --assignee ai --status pending,in_progress --execution-mode autonomous --json`
+- `./scripts/concentray task get-next --assignee ai --status pending,in_progress --execution-mode autonomous --json`
 - `./scripts/concentray task get <task_id> --with-comments --json`
 - `./scripts/concentray task update <task_id> --status ... --assignee ... --urgency ... --input-request ... --json`
 - `./scripts/concentray comment add <task_id> --message ... --type ... --attachment ... --metadata ... --json`

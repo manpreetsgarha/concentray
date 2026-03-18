@@ -22,6 +22,7 @@ export const seedTasks: Task[] = [
     status: "Blocked",
     createdBy: "Human",
     assignee: "AI",
+    executionMode: "Autonomous",
     contextLink: "https://example.com/workspaces/q3-finance",
     aiUrgency: 5,
     updatedAt: "2026-03-03T10:00:00Z",
@@ -42,6 +43,7 @@ export const seedTasks: Task[] = [
     status: "In Progress",
     createdBy: "AI",
     assignee: "Human",
+    executionMode: "Session",
     aiUrgency: 2,
     updatedAt: "2026-03-03T10:05:00Z",
     inputRequest: null

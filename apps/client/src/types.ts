@@ -1,5 +1,6 @@
 export type Actor = "Human" | "AI";
 export type TaskStatus = "Pending" | "In Progress" | "Blocked" | "Done";
+export type TaskExecutionMode = "Autonomous" | "Session";
 
 export type InputRequestType = "choice" | "approve_reject" | "text_input" | "file_or_photo";
 
@@ -52,6 +53,7 @@ export interface Task {
   status: TaskStatus;
   createdBy: Actor;
   assignee: Actor;
+  executionMode: TaskExecutionMode;
   contextLink?: string;
   aiUrgency?: number;
   inputRequest?: InputRequest | null;

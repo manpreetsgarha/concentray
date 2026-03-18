@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
 from concentray_cli.context import build_context_envelope
-from concentray_cli.models import Actor, Comment, CommentType, Task, TaskStatus, UpdatedBy, iso_now
+from concentray_cli.models import Actor, Comment, CommentType, Task, TaskExecutionMode, TaskStatus, UpdatedBy, iso_now
 from concentray_cli.providers.base import Provider
 from concentray_cli.providers.local_json import LocalJsonProvider
 from concentray_cli.workspace_store import (
@@ -48,6 +48,18 @@ def _actor_from_wire(raw: str) -> Actor:
     }
     if raw not in mapping:
         raise ValueError(f"Invalid actor: {raw}")
+    return mapping[raw]
+
+
+def _execution_mode_from_wire(raw: str) -> TaskExecutionMode:
+    mapping = {
+        "autonomous": TaskExecutionMode.AUTONOMOUS,
+        "session": TaskExecutionMode.SESSION,
+        "Autonomous": TaskExecutionMode.AUTONOMOUS,
+        "Session": TaskExecutionMode.SESSION,
+    }
+    if raw not in mapping:
+        raise ValueError(f"Invalid execution mode: {raw}")
     return mapping[raw]
 
 
@@ -283,6 +295,7 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             assignee = (query.get("assignee") or [None])[0]
             status = (query.get("status") or [None])[0]
+            execution_mode = (query.get("execution_mode") or [None])[0]
 
             tasks = self._provider().list_tasks()
             if assignee:
@@ -299,6 +312,14 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                     for task in tasks
                     if (task.status.value if hasattr(task.status, "value") else str(task.status))
                     == status_value
+                ]
+            if execution_mode:
+                execution_mode_value = _execution_mode_from_wire(execution_mode).value
+                tasks = [
+                    task
+                    for task in tasks
+                    if (task.execution_mode.value if hasattr(task.execution_mode, "value") else str(task.execution_mode))
+                    == execution_mode_value
                 ]
 
             self._send(200, {"ok": True, "tasks": [task.model_dump(by_alias=True) for task in tasks]})
@@ -442,6 +463,12 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             now = iso_now()
             created_by = _actor_from_wire(str(payload.get("created_by", "Human")))
             assignee = _actor_from_wire(str(payload.get("assignee", "AI")))
+            raw_execution_mode = payload.get("execution_mode")
+            execution_mode = (
+                _execution_mode_from_wire(str(raw_execution_mode))
+                if raw_execution_mode is not None
+                else (TaskExecutionMode.AUTONOMOUS if assignee == Actor.AI else TaskExecutionMode.SESSION)
+            )
             title = str(payload.get("title", "Untitled Task")).strip() or "Untitled Task"
 
             task = Task(
@@ -449,6 +476,7 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                 Status=TaskStatus.PENDING,
                 Created_By=created_by,
                 Assignee=assignee,
+                Execution_Mode=execution_mode,
                 Context_Link=payload.get("context_link"),
                 AI_Urgency=int(payload.get("ai_urgency", 3)),
                 Input_Request=None,
@@ -460,6 +488,7 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                     "status": now,
                     "assignee": now,
                     "created_by": now,
+                    "execution_mode": now,
                 },
             )
             self._provider().upsert_task(task)
@@ -472,6 +501,10 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                     worker_id=str(payload.get("worker_id", "")).strip(),
                     assignee=str(payload.get("assignee", "ai")),
                     statuses=[_status_from_wire(item) for item in payload.get("status", ["pending", "in_progress"])],
+                    execution_modes=[
+                        _execution_mode_from_wire(item)
+                        for item in payload.get("execution_mode", ["autonomous"])
+                    ],
                     updated_by=_updated_by_from_wire(str(payload.get("updated_by", "AI"))),
                     lease_seconds=int(payload.get("lease_seconds", 1800)),
                 )
@@ -576,6 +609,10 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         if "assignee" in patch and patch["assignee"] is not None:
             updates["assignee"] = _actor_from_wire(str(patch["assignee"]))
             updates["field_clock"]["assignee"] = now
+
+        if "execution_mode" in patch and patch["execution_mode"] is not None:
+            updates["execution_mode"] = _execution_mode_from_wire(str(patch["execution_mode"]))
+            updates["field_clock"]["execution_mode"] = now
 
         if "ai_urgency" in patch and patch["ai_urgency"] is not None:
             urgency = int(patch["ai_urgency"])

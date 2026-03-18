@@ -8,6 +8,7 @@ from concentray_cli.models import Comment, Task
 def build_context_envelope(task: Task, comments: List[Comment]) -> Dict[str, Any]:
     assignee = task.assignee.value if hasattr(task.assignee, "value") else str(task.assignee)
     created_by = task.created_by.value if hasattr(task.created_by, "value") else str(task.created_by)
+    execution_mode = task.execution_mode.value if hasattr(task.execution_mode, "value") else str(task.execution_mode)
     status = task.status.value if hasattr(task.status, "value") else str(task.status)
 
     return {
@@ -18,6 +19,7 @@ def build_context_envelope(task: Task, comments: List[Comment]) -> Dict[str, Any
             "title": task.title,
             "assignee": assignee,
             "created_by": created_by,
+            "execution_mode": execution_mode,
         },
         "input_request": task.input_request,
         "comments": [comment.model_dump(by_alias=True) for comment in comments],
@@ -32,6 +34,7 @@ def build_context_envelope(task: Task, comments: List[Comment]) -> Dict[str, Any
         "constraints": {
             "status": status,
             "ai_urgency": task.ai_urgency,
+            "execution_mode": execution_mode,
         },
         "timestamps": {
             "task_updated_at": task.updated_at,
