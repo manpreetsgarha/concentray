@@ -9,6 +9,18 @@ pnpm install
 pnpm web
 ```
 
+## Architecture
+
+The client is organized around a few clear layers:
+
+- `src/data` handles demo records and wire-to-domain mapping
+- `src/lib` holds pure formatting and upload helpers
+- `src/ui` contains reusable presentation components
+- `App.tsx` coordinates state, API calls, and screen composition
+
+Shared domain primitives such as actor/status/execution-mode/input-request types come from `@concentray/contracts`.
+Client-specific view models stay in `src/types.ts`.
+
 ## Shared local storage (UI + terminal agent)
 
 1. Start the local shared API from the CLI workspace:
@@ -31,6 +43,13 @@ pnpm web
 Now the web app and terminal agent both read/write the same local store.
 
 When using `./scripts/concentray start`, the CLI injects these variables automatically. Do not commit a project-local `apps/client/.env` with a fixed API URL.
+
+## Quality checks
+
+```bash
+pnpm typecheck
+pnpm test
+```
 
 Attachment types supported in the comment thread:
 

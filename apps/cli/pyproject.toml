@@ -23,8 +23,8 @@ dev = [
 ]
 
 [project.scripts]
-concentray = "concentray_cli.main:main"
-ctray = "concentray_cli.main:main"
+concentray = "concentray_cli.cli_app:main"
+ctray = "concentray_cli.cli_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

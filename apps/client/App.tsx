@@ -18,557 +18,34 @@ import {
 } from "react-native";
 
 import { BlockerCard } from "./src/BlockerCard";
-import { seedComments, seedTasks, seedWorkspaces } from "./src/mockData";
 import type { Actor, Comment, Task, TaskExecutionMode, TaskStatus, WorkspaceSummary } from "./src/types";
-
-interface WireTask {
-  Task_ID: string;
-  Title: string;
-  Status: string;
-  Created_By: string;
-  Assignee: string;
-  Execution_Mode?: string | null;
-  Context_Link?: string | null;
-  AI_Urgency?: number;
-  Input_Request?: Record<string, unknown> | null;
-  Input_Response?: Record<string, unknown> | null;
-  Worker_ID?: string | null;
-  Claimed_At?: string | null;
-  Updated_At?: string;
-}
-
-interface WireComment {
-  Comment_ID: string;
-  Task_ID: string;
-  Author: string;
-  Message: string;
-  Type: string;
-  Timestamp: string;
-  Attachment_Link?: string | null;
-  Metadata?: Record<string, unknown> | null;
-}
-
-interface WireWorkspace {
-  name: string;
-  provider?: string;
-  store?: string;
-  active?: boolean;
-}
-
-interface UploadDraft {
-  filename: string;
-  mime_type: string;
-  size_bytes: number;
-  data_base64: string;
-}
-
-interface DemoWorkspaceRecord {
-  summary: WorkspaceSummary;
-  tasks: Task[];
-  comments: Comment[];
-}
-
-interface TaskDraft {
-  title: string;
-  status: TaskStatus;
-  createdBy: Actor;
-  assignee: Actor;
-  executionMode: TaskExecutionMode;
-  aiUrgency: number;
-  contextLink: string;
-}
-
-interface ChoiceOption {
-  label: string;
-  value: string;
-}
+import { buildDemoWorkspaces, createTaskDraft, type DemoWorkspaceRecord, type TaskDraft } from "./src/data/demo";
+import {
+  executionModeToWire,
+  statusToWire,
+  toComment,
+  toTask,
+  toWorkspace,
+  type WireComment,
+  type WireTask,
+  type WireWorkspace
+} from "./src/data/wire";
+import { formatBytes, formatMetadataJson, formatTimestamp, looksLikeUrl, sortTasks } from "./src/lib/formatters";
+import { pickFileForUpload, type UploadDraft } from "./src/lib/uploads";
+import { LogoMark } from "./src/ui/brand/LogoMark";
+import { ChoiceGroup, type ChoiceOption } from "./src/ui/forms/ChoiceGroup";
+import { FilterChip } from "./src/ui/forms/FilterChip";
+import { AttachmentVideoPreview } from "./src/ui/tasks/AttachmentVideoPreview";
+import { TaskListItem } from "./src/ui/tasks/TaskListItem";
+import { WorkspaceCard } from "./src/ui/workspaces/WorkspaceCard";
 
 type ActivityView = "comments" | "logs";
-
-function workspaceAccent(name: string): string {
-  const palette = ["#00d4aa", "#5b8def", "#a78bfa", "#f59e0b", "#f472b6", "#34d399"];
-  const hash = Array.from(name).reduce((total, char) => total + char.charCodeAt(0), 0);
-  return palette[hash % palette.length] ?? "#00d4aa";
-}
 
 function statusBarStyle(status: TaskStatus) {
   if (status === "Blocked") return styles.statusBarBlocked;
   if (status === "In Progress") return styles.statusBarInProgress;
   if (status === "Done") return styles.statusBarDone;
   return styles.statusBarPending;
-}
-
-function formatBytes(value?: number): string {
-  if (!value || value <= 0) {
-    return "0 B";
-  }
-  if (value < 1024) {
-    return `${value} B`;
-  }
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function shortHash(value?: string): string | null {
-  if (!value) {
-    return null;
-  }
-  if (value.length <= 20) {
-    return value;
-  }
-  return `${value.slice(0, 10)}...${value.slice(-8)}`;
-}
-
-function formatTimestamp(value?: string): string {
-  if (!value) {
-    return "Unknown";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return parsed.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
-}
-
-function looksLikeUrl(value?: string): boolean {
-  if (!value) {
-    return false;
-  }
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function formatMetadataJson(metadata?: Record<string, unknown> | null): string | null {
-  if (!metadata || Object.keys(metadata).length === 0) {
-    return null;
-  }
-  try {
-    return JSON.stringify(metadata, null, 2);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeStatus(raw: string): TaskStatus {
-  if (raw === "In Progress") {
-    return "In Progress";
-  }
-  if (raw === "Blocked") {
-    return "Blocked";
-  }
-  if (raw === "Done") {
-    return "Done";
-  }
-  return "Pending";
-}
-
-function statusToWire(status: TaskStatus): string {
-  if (status === "In Progress") {
-    return "in_progress";
-  }
-  return status.toLowerCase();
-}
-
-function normalizeActor(raw: string): Actor {
-  return raw.toLowerCase() === "ai" ? "AI" : "Human";
-}
-
-function normalizeExecutionMode(raw: string | null | undefined, assignee: Actor): TaskExecutionMode {
-  if ((raw ?? "").toLowerCase() === "session") {
-    return "Session";
-  }
-  if ((raw ?? "").toLowerCase() === "autonomous") {
-    return "Autonomous";
-  }
-  return assignee === "Human" ? "Session" : "Autonomous";
-}
-
-function executionModeToWire(mode: TaskExecutionMode): string {
-  return mode.toLowerCase();
-}
-
-function toTask(wire: WireTask): Task {
-  const assignee = normalizeActor(wire.Assignee);
-  return {
-    id: wire.Task_ID,
-    title: wire.Title,
-    status: normalizeStatus(wire.Status),
-    createdBy: normalizeActor(wire.Created_By),
-    assignee,
-    executionMode: normalizeExecutionMode(wire.Execution_Mode, assignee),
-    contextLink: wire.Context_Link ?? undefined,
-    aiUrgency: wire.AI_Urgency,
-    inputRequest: (wire.Input_Request as Task["inputRequest"]) ?? null,
-    inputResponse: wire.Input_Response ?? null,
-    workerId: wire.Worker_ID ?? undefined,
-    claimedAt: wire.Claimed_At ?? undefined,
-    updatedAt: wire.Updated_At ?? new Date().toISOString()
-  };
-}
-
-function toComment(wire: WireComment): Comment {
-  const typeMapping: Record<string, Comment["type"]> = {
-    message: "message",
-    log: "log",
-    decision: "decision",
-    attachment: "attachment"
-  };
-
-  const rawType = wire.Type.toLowerCase();
-  const metadata = wire.Metadata ?? null;
-  return {
-    id: wire.Comment_ID,
-    taskId: wire.Task_ID,
-    author: normalizeActor(wire.Author),
-    message: wire.Message,
-    type: typeMapping[rawType] ?? "message",
-    timestamp: wire.Timestamp,
-    attachmentLink: wire.Attachment_Link ?? undefined,
-    metadata,
-    attachmentMeta:
-      rawType === "attachment" || Boolean(wire.Attachment_Link)
-        ? ((metadata as Comment["attachmentMeta"]) ?? undefined)
-        : undefined
-  };
-}
-
-function toWorkspace(wire: WireWorkspace): WorkspaceSummary {
-  return {
-    name: wire.name,
-    provider: wire.provider,
-    store: wire.store,
-    active: Boolean(wire.active)
-  };
-}
-
-function createTaskDraft(task: Task | null): TaskDraft {
-  return {
-    title: task?.title ?? "",
-    status: task?.status ?? "Pending",
-    createdBy: task?.createdBy ?? "Human",
-    assignee: task?.assignee ?? "AI",
-    executionMode: task?.executionMode ?? "Autonomous",
-    aiUrgency: task?.aiUrgency ?? 3,
-    contextLink: task?.contextLink ?? ""
-  };
-}
-
-function sortTasks(tasks: Task[]): Task[] {
-  const statusRank: Record<TaskStatus, number> = {
-    Blocked: 0,
-    "In Progress": 1,
-    Pending: 2,
-    Done: 3
-  };
-
-  return [...tasks].sort((left, right) => {
-    const rankDelta = statusRank[left.status] - statusRank[right.status];
-    if (rankDelta !== 0) {
-      return rankDelta;
-    }
-    return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-  });
-}
-
-function statusBadgeVariant(status: TaskStatus) {
-  if (status === "Blocked") {
-    return styles.statusBlocked;
-  }
-  if (status === "In Progress") {
-    return styles.statusInProgress;
-  }
-  if (status === "Done") {
-    return styles.statusDone;
-  }
-  return styles.statusPending;
-}
-
-function pickFileForUpload(): Promise<UploadDraft | null> {
-  if (Platform.OS !== "web") {
-    return Promise.resolve(null);
-  }
-
-  return new Promise((resolve) => {
-    const doc = (globalThis as { document?: Document }).document;
-    if (!doc) {
-      resolve(null);
-      return;
-    }
-
-    const input = doc.createElement("input");
-    input.type = "file";
-    input.accept = "image/*,video/*,text/plain,text/csv,.txt,.csv";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) {
-        resolve(null);
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result ?? "");
-        const base64 = result.includes(",") ? result.split(",")[1] : result;
-        resolve({
-          filename: file.name,
-          mime_type: file.type || "application/octet-stream",
-          size_bytes: file.size,
-          data_base64: base64
-        });
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  });
-}
-
-function buildDemoWorkspaces(): DemoWorkspaceRecord[] {
-  const secondTask: Task = {
-    id: "task-seed-3",
-    title: "Draft launch narrative for concierge automation",
-    status: "Pending",
-    createdBy: "Human",
-    assignee: "AI",
-    executionMode: "Autonomous",
-    aiUrgency: 4,
-    contextLink: "https://example.com/workspaces/motion-lab/brief",
-    inputRequest: null,
-    inputResponse: null,
-    updatedAt: "2026-03-04T09:10:00Z"
-  };
-
-  const secondComment: Comment = {
-    id: "c-3",
-    taskId: "task-seed-3",
-    author: "Human",
-    type: "message",
-    message: "Need a homepage story arc that feels precise, not generic.",
-    timestamp: "2026-03-04T09:12:00Z"
-  };
-
-  return [
-    {
-      summary: { ...seedWorkspaces[0], active: true },
-      tasks: seedTasks,
-      comments: seedComments
-    },
-    {
-      summary: { ...seedWorkspaces[1], active: false },
-      tasks: [secondTask],
-      comments: [secondComment]
-    }
-  ];
-}
-
-function LogoMark() {
-  return (
-    <View style={styles.logoMark}>
-      <View style={styles.logoMarkRingOuter} />
-      <View style={styles.logoMarkRingInner} />
-      <View style={styles.logoMarkCore} />
-      <View style={styles.logoMarkPulse} />
-    </View>
-  );
-}
-
-function WorkspaceCard(props: {
-  workspace: WorkspaceSummary;
-  isSelected: boolean;
-  collapsed?: boolean;
-  canDelete?: boolean;
-  busy?: boolean;
-  onPress: () => void;
-  onDelete?: () => void;
-}) {
-  const { workspace, isSelected, collapsed = false, canDelete = false, busy = false, onPress, onDelete } = props;
-  const summary = isSelected
-    ? "Current lane"
-    : workspace.provider === "local_json"
-      ? "Local workspace"
-      : "Workspace";
-  const accent = workspaceAccent(workspace.name);
-  return (
-    <View
-      style={[
-        styles.workspaceCard,
-        isSelected ? styles.workspaceCardActive : null,
-        collapsed ? styles.workspaceCardCollapsed : null
-      ]}
-    >
-      <Pressable style={styles.workspaceCardPressable} onPress={onPress}>
-        <View
-          style={[
-            styles.workspaceGlyph,
-            isSelected ? styles.workspaceGlyphActive : null,
-            { borderColor: `${accent}55` }
-          ]}
-        >
-          <View style={[styles.workspaceGlyphDot, { backgroundColor: accent }]} />
-        </View>
-        {!collapsed ? (
-          <View style={styles.workspaceCardBody}>
-            <View style={styles.workspaceCardTop}>
-              <Text style={styles.workspaceName}>{workspace.name}</Text>
-              <View style={[styles.workspaceStatePill, workspace.active ? styles.workspaceStatePillActive : null]}>
-                <Text style={styles.workspaceStateText}>{workspace.active ? "Live" : "Idle"}</Text>
-              </View>
-            </View>
-            <Text style={styles.workspaceStore} numberOfLines={1}>
-              {summary}
-            </Text>
-          </View>
-        ) : null}
-      </Pressable>
-      {!collapsed && canDelete && onDelete ? (
-        <Pressable
-          style={[styles.workspaceDeleteButton, busy ? styles.buttonDisabled : null]}
-          onPress={() => onDelete()}
-          disabled={busy}
-        >
-          <Feather name="trash-2" size={13} color="#526080" />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function ChoiceGroup(props: {
-  label: string;
-  options: ChoiceOption[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const { label, options, value, onChange } = props;
-  return (
-    <View style={styles.fieldBlock}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={styles.choiceWrap}>
-        {options.map((option) => (
-          <Pressable
-            key={option.value}
-            style={[styles.choicePill, option.value === value ? styles.choicePillActive : null]}
-            onPress={() => onChange(option.value)}
-          >
-            <Text style={[styles.choiceLabel, option.value === value ? styles.choiceLabelActive : null]}>
-              {option.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function FilterChip(props: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  const { label, active, onPress } = props;
-  return (
-    <Pressable style={[styles.filterChip, active ? styles.filterChipActive : null]} onPress={onPress}>
-      <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : null]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function SideRailItem(props: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  const { label, value, accent = false } = props;
-  return (
-    <View style={styles.sideRailItem}>
-      <Text style={styles.sideRailLabel}>{label}</Text>
-      <Text style={[styles.sideRailValue, accent ? styles.sideRailValueAccent : null]}>{value}</Text>
-    </View>
-  );
-}
-
-function TaskListItem(props: {
-  task: Task;
-  selected: boolean;
-  busy?: boolean;
-  onPress: () => void;
-  onToggleDone: () => void;
-}) {
-  const { task, selected, busy = false, onPress, onToggleDone } = props;
-  const strike = task.status === "Done";
-  return (
-    <View style={[styles.taskCard, selected ? styles.taskCardSelected : null]}>
-      <View style={[styles.taskStatusBar, statusBarStyle(task.status)]} />
-      <Pressable
-        style={[styles.taskCheckButton, strike ? styles.taskCheckButtonDone : null, busy ? styles.buttonDisabled : null]}
-        onPress={onToggleDone}
-        disabled={busy}
-      >
-        <Feather name={strike ? "check-circle" : "circle"} size={16} color={strike ? "#526080" : "#8494b2"} />
-      </Pressable>
-      <Pressable style={styles.taskCardBody} onPress={onPress}>
-        <View style={styles.taskCardHeader}>
-          <Text
-            style={[
-              styles.taskCardTitle,
-              strike ? styles.taskCardTitleDone : null
-            ]}
-            numberOfLines={2}
-          >
-            {task.title}
-          </Text>
-          {task.inputRequest ? <Text style={styles.taskBlockedHint}>Blocked</Text> : null}
-        </View>
-        <View style={styles.taskMetaRow}>
-          <Text style={styles.taskCardMeta}>
-            {task.assignee} · {task.executionMode} · {task.status}
-          </Text>
-          <Text style={styles.taskTimestamp}>{formatTimestamp(task.updatedAt)}</Text>
-        </View>
-        <Text style={styles.taskUrgency}>Urgency {task.aiUrgency ?? 3}/5</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-function AttachmentVideoPreview(props: { uri: string; mimeType?: string }) {
-  const { uri, mimeType } = props;
-  if (Platform.OS !== "web") {
-    return <Text style={styles.attachmentMeta}>Video preview is available on web. Use Open Attachment.</Text>;
-  }
-
-  return (
-    <View style={styles.videoFrame}>
-      {React.createElement(
-        "video",
-        {
-          controls: true,
-          preload: "metadata",
-          style: {
-            width: "100%",
-            height: "100%",
-            borderRadius: 18,
-            backgroundColor: "#081018"
-          }
-        },
-        React.createElement("source", {
-          src: uri,
-          type: mimeType || "video/mp4"
-        })
-      )}
-    </View>
-  );
 }
 
 export default function App() {
@@ -609,7 +86,6 @@ export default function App() {
   const [taskDeleteTarget, setTaskDeleteTarget] = useState<Task | null>(null);
   const [showQueueFilters, setShowQueueFilters] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
-  const [showCommentComposer, setShowCommentComposer] = useState(false);
   const [activityView, setActivityView] = useState<ActivityView>("comments");
   const [expandedLogIds, setExpandedLogIds] = useState<string[]>([]);
 
@@ -800,7 +276,6 @@ export default function App() {
   }, [selectedTask]);
 
   useEffect(() => {
-    setShowCommentComposer(false);
     setActivityView("comments");
     setExpandedLogIds([]);
   }, [selectedTaskId]);
@@ -2134,47 +1609,6 @@ const styles = StyleSheet.create({
     gap: 12,
     minWidth: 0
   },
-  logoMark: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(0,212,170,0.22)",
-    backgroundColor: "rgba(0,212,170,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative"
-  },
-  logoMarkRingOuter: {
-    position: "absolute",
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: "rgba(0,212,170,0.35)"
-  },
-  logoMarkRingInner: {
-    position: "absolute",
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    borderColor: "rgba(91,141,239,0.55)"
-  },
-  logoMarkCore: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#00d4aa"
-  },
-  logoMarkPulse: {
-    position: "absolute",
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(0,212,170,0.08)"
-  },
   accountCopy: {
     gap: 1,
     minWidth: 0
@@ -2249,78 +1683,10 @@ const styles = StyleSheet.create({
   workspaceStack: {
     gap: 3
   },
-  workspaceCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "transparent"
-  },
-  workspaceCardPressable: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10
-  },
-  workspaceCardActive: {
-    backgroundColor: "rgba(0,212,170,0.06)",
-    borderColor: "rgba(0,212,170,0.14)"
-  },
-  workspaceCardCollapsed: {
-    justifyContent: "center",
-    paddingHorizontal: 8
-  },
-  workspaceGlyph: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    backgroundColor: "rgba(99,130,190,0.06)",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  workspaceGlyphActive: {
-    backgroundColor: "rgba(0,212,170,0.10)"
-  },
-  workspaceGlyphDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4
-  },
-  workspaceCardBody: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0
-  },
-  workspaceCardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 8
-  },
   workspaceName: {
     color: "#dce4f0",
     fontSize: 14,
     fontWeight: "600",
-    fontFamily: F
-  },
-  workspaceStatePill: {
-    borderRadius: 999,
-    backgroundColor: "rgba(99,130,190,0.08)",
-    paddingHorizontal: 7,
-    paddingVertical: 3
-  },
-  workspaceStatePillActive: {
-    backgroundColor: "rgba(0,212,170,0.14)"
-  },
-  workspaceStateText: {
-    color: "#8494b2",
-    fontSize: 10,
-    fontWeight: "700",
     fontFamily: F
   },
   workspaceStore: {
@@ -2466,27 +1832,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 6
   },
-  filterChip: {
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "rgba(99,130,190,0.10)",
-    backgroundColor: "rgba(99,130,190,0.05)",
-    paddingHorizontal: 12,
-    paddingVertical: 7
-  },
-  filterChipActive: {
-    backgroundColor: "rgba(0,212,170,0.10)",
-    borderColor: "rgba(0,212,170,0.25)"
-  },
-  filterChipText: {
-    color: "#8494b2",
-    fontWeight: "600",
-    fontSize: 12,
-    fontFamily: F
-  },
-  filterChipTextActive: {
-    color: "#5df5d0"
-  },
   contentSplit: {
     flex: 1,
     minHeight: 0
@@ -2500,24 +1845,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     paddingBottom: 12
   },
-  taskCard: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "transparent",
-    backgroundColor: "transparent"
-  },
-  taskStatusBar: {
-    width: 3,
-    alignSelf: "stretch",
-    borderRadius: 2,
-    backgroundColor: "rgba(99,130,190,0.12)",
-    marginVertical: 2
-  },
   statusBarPending: {
     backgroundColor: "rgba(91,141,239,0.40)"
   },
@@ -2529,21 +1856,6 @@ const styles = StyleSheet.create({
   },
   statusBarDone: {
     backgroundColor: "rgba(99,130,190,0.15)"
-  },
-  taskCheckButton: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 1
-  },
-  taskCheckButtonDone: {
-    backgroundColor: "rgba(99,130,190,0.06)"
-  },
-  taskCardSelected: {
-    borderColor: "rgba(0,212,170,0.18)",
-    backgroundColor: "rgba(0,212,170,0.04)"
   },
   statusPending: {
     backgroundColor: "transparent"
@@ -2559,64 +1871,6 @@ const styles = StyleSheet.create({
   statusDone: {
     backgroundColor: "rgba(107, 114, 128, 0.75)",
     borderColor: "rgba(156, 163, 175, 0.85)"
-  },
-  taskCardBody: {
-    flex: 1,
-    gap: 5,
-    minWidth: 0
-  },
-  taskCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12
-  },
-  taskCardTitle: {
-    flex: 1,
-    color: "#dce4f0",
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: "500",
-    fontFamily: F
-  },
-  taskCardTitleDone: {
-    color: "#3d4b68",
-    textDecorationLine: "line-through"
-  },
-  taskBlockedHint: {
-    color: "#f43f5e",
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    borderRadius: 4,
-    overflow: "hidden",
-    backgroundColor: "rgba(244,63,94,0.10)",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    fontFamily: F
-  },
-  taskMetaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-    alignItems: "center",
-    flexWrap: "wrap"
-  },
-  taskCardMeta: {
-    color: "#526080",
-    fontSize: 12,
-    fontFamily: F
-  },
-  taskTimestamp: {
-    color: "#3d4b68",
-    fontSize: 11,
-    fontFamily: FM
-  },
-  taskUrgency: {
-    color: "#526080",
-    fontSize: 12,
-    fontFamily: F
   },
   emptyStateCardCompact: {
     borderRadius: 12,
@@ -2865,43 +2119,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: "hidden"
   },
-  fieldBlock: {
-    gap: 8
-  },
-  fieldLabel: {
-    color: "#3d4b68",
-    fontSize: 10,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
-    fontFamily: F
-  },
-  choiceWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6
-  },
-  choicePill: {
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "rgba(99,130,190,0.10)",
-    backgroundColor: "rgba(99,130,190,0.05)",
-    paddingHorizontal: 12,
-    paddingVertical: 8
-  },
-  choicePillActive: {
-    backgroundColor: "rgba(0,212,170,0.10)",
-    borderColor: "rgba(0,212,170,0.25)"
-  },
-  choiceLabel: {
-    color: "#8494b2",
-    fontWeight: "600",
-    fontSize: 13,
-    fontFamily: F
-  },
-  choiceLabelActive: {
-    color: "#5df5d0"
-  },
   primaryButtonSmall: {
     borderRadius: 8,
     backgroundColor: "#00856b",
@@ -3059,13 +2276,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "#0e1220"
   },
-  videoFrame: {
-    width: "100%",
-    height: 240,
-    borderRadius: 10,
-    overflow: "hidden",
-    backgroundColor: "#060810"
-  },
   previewCard: {
     borderRadius: 10,
     backgroundColor: "rgba(6,8,16,0.60)",
@@ -3188,29 +2398,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     fontFamily: F
-  },
-  sideRailItem: {
-    gap: 4,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(99,130,190,0.06)"
-  },
-  sideRailLabel: {
-    color: "#3d4b68",
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    fontFamily: F
-  },
-  sideRailValue: {
-    color: "#8494b2",
-    fontSize: 14,
-    lineHeight: 21,
-    fontFamily: F
-  },
-  sideRailValueAccent: {
-    color: "#f43f5e"
   },
   modalScrim: {
     flex: 1,

@@ -85,6 +85,22 @@ Current shared local runtime:
 - `skills/concentray-task-operator` - shared Codex / Claude-oriented skill bundle
 - `scripts` - repo-local wrappers and bootstrap scripts
 
+## Architecture flow
+
+Concentray is intentionally split so each layer has a narrow job:
+
+- UI and operator workflows live in `apps/client`
+- command handling, local runtime orchestration, and agent installers live in `apps/cli`
+- shared task/input-request contracts live in `packages/contracts`
+- local-first storage and sync primitives live in `packages/client-data`
+
+Runtime flow:
+
+1. The web UI or CLI issues task/comment/workspace actions.
+2. The CLI runtime resolves the active provider and local store.
+3. Shared contracts define the payload shape across UI, CLI, and agent adapters.
+4. The local JSON store remains the source of truth for v1.
+
 ## Quick start
 
 ### 1. Install dependencies
@@ -114,6 +130,25 @@ This creates the default workspace and store at:
 This starts:
 - local API, default `http://127.0.0.1:8787`
 - Expo web app, default `http://localhost:8081`
+
+## Engineering workflow
+
+Root scripts are the intended review surface for code quality:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm check
+```
+
+Optional formatting helpers:
+
+```bash
+pnpm format
+```
+
+`pnpm check` is what CI runs on pull requests.
 
 If a port is busy, Concentray will pick the next free one.
 

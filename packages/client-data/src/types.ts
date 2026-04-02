@@ -1,4 +1,4 @@
-import type { Actor, TaskExecutionMode, TaskStatus } from "@concentray/contracts";
+import type { Actor, CommentType, InputRequest, TaskExecutionMode, TaskStatus } from "@concentray/contracts";
 
 export interface Task {
   id: string;
@@ -9,7 +9,7 @@ export interface Task {
   executionMode: TaskExecutionMode;
   contextLink?: string;
   aiUrgency?: number;
-  inputRequest?: Record<string, unknown> | null;
+  inputRequest?: InputRequest | null;
   inputRequestVersion?: string | null;
   inputResponse?: Record<string, unknown> | null;
   createdAt: string;
@@ -26,7 +26,7 @@ export interface Comment {
   author: Actor;
   timestamp: string;
   message: string;
-  type: "message" | "log" | "decision" | "attachment";
+  type: CommentType;
   attachmentLink?: string;
   metadata?: Record<string, unknown>;
   createdAt: string;

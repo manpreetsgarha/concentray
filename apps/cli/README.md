@@ -18,6 +18,18 @@ Default CLI help is intentionally simplified for onboarding and daily use.
 Advanced commands remain available (e.g. `workspace ...`, `skill run`), but are hidden from default help output.
 Agent installers are also available as hidden advanced commands.
 
+## Architecture
+
+The CLI is now split by responsibility instead of one large entrypoint:
+
+- `commands/` contains Typer command groups (`task`, `comment`, `context`, `workspace`, `agent`, runtime)
+- `parsing.py` owns option normalization and validation helpers
+- `runtime_support.py` owns background runtime/process helpers
+- `installers.py` owns agent-install template rendering and OpenClaw registration helpers
+- `cli_app.py` assembles the Typer application
+
+`main.py` is only the Python entrypoint and re-export surface.
+
 No-install repo-local wrapper:
 
 ```bash
@@ -63,6 +75,13 @@ Precheck your machine:
 
 ```bash
 concentray doctor
+```
+
+## Quality checks
+
+```bash
+python3.11 -m ruff check src tests
+python3.11 -m pytest -q
 ```
 
 ## Default provider

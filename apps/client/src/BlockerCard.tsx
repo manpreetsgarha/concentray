@@ -20,7 +20,10 @@ export function BlockerCard({ inputRequest, onSubmit }: Props) {
 
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.badge}>AI BLOCKED</Text>
+      <View style={styles.badgeRow}>
+        <View style={styles.badgeDot} />
+        <Text style={styles.badge}>AI BLOCKED</Text>
+      </View>
       <Text style={styles.prompt}>{inputRequest.prompt}</Text>
 
       {inputRequest.type === "choice" ? (
@@ -60,6 +63,7 @@ export function BlockerCard({ inputRequest, onSubmit }: Props) {
             style={styles.input}
             value={textValue}
             placeholder={inputRequest.placeholder ?? "Type response"}
+            placeholderTextColor="#3d4b68"
             multiline={Boolean(inputRequest.multiline)}
             onChangeText={setTextValue}
           />
@@ -81,34 +85,42 @@ export function BlockerCard({ inputRequest, onSubmit }: Props) {
   );
 }
 
+const F = '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif';
+
 const styles = StyleSheet.create({
   wrapper: {
     borderWidth: 1,
-    borderColor: "rgba(219,109,52,0.28)",
-    backgroundColor: "rgba(255,244,238,0.98)",
-    borderRadius: 24,
+    borderColor: "rgba(244,63,94,0.20)",
+    backgroundColor: "rgba(244,63,94,0.06)",
+    borderRadius: 14,
     padding: 18,
-    gap: 12,
-    shadowColor: "#7c2d12",
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 12 },
-    shadowRadius: 22,
-    elevation: 4
+    gap: 14
+  },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8
+  },
+  badgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#f43f5e"
   },
   badge: {
-    alignSelf: "flex-start",
-    backgroundColor: "#8a1538",
-    color: "#fff",
+    color: "#fda4af",
     fontWeight: "700",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    fontFamily: F
   },
   prompt: {
-    color: "#102131",
+    color: "#dce4f0",
     fontSize: 15,
-    lineHeight: 22,
-    fontWeight: "700"
+    lineHeight: 23,
+    fontWeight: "600",
+    fontFamily: F
   },
   rowWrap: {
     flexDirection: "row",
@@ -117,54 +129,67 @@ const styles = StyleSheet.create({
   },
   choiceChip: {
     borderWidth: 1,
-    borderColor: "rgba(16,44,87,0.12)",
-    borderRadius: 999,
+    borderColor: "rgba(99,130,190,0.15)",
+    borderRadius: 8,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: "#fff"
+    paddingVertical: 9,
+    backgroundColor: "rgba(99,130,190,0.06)"
   },
   choiceText: {
-    color: "#102131",
-    fontWeight: "700"
+    color: "#dce4f0",
+    fontWeight: "600",
+    fontSize: 13,
+    fontFamily: F
   },
   actionButton: {
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    borderRadius: 8,
+    paddingHorizontal: 16,
     paddingVertical: 10
   },
   approve: {
-    backgroundColor: "#0f766e"
+    backgroundColor: "#00856b"
   },
   reject: {
-    backgroundColor: "#8a1538"
+    backgroundColor: "rgba(244,63,94,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(244,63,94,0.30)"
   },
   actionText: {
-    color: "#fff",
-    fontWeight: "800"
+    color: "#f0f4fa",
+    fontWeight: "700",
+    fontSize: 13,
+    fontFamily: F
   },
   column: {
-    gap: 8
+    gap: 10
   },
   input: {
     borderWidth: 1,
-    borderColor: "rgba(16, 33, 49, 0.12)",
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 10,
-    minHeight: 40
+    borderColor: "rgba(99,130,190,0.12)",
+    backgroundColor: "rgba(99,130,190,0.04)",
+    borderRadius: 10,
+    padding: 12,
+    minHeight: 42,
+    color: "#dce4f0",
+    fontSize: 14,
+    fontFamily: F
   },
   submit: {
     alignSelf: "flex-start",
-    backgroundColor: "#102c57",
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    backgroundColor: "#00856b",
+    borderRadius: 8,
+    paddingHorizontal: 16,
     paddingVertical: 10
   },
   submitText: {
-    color: "#fff",
-    fontWeight: "800"
+    color: "#f0f4fa",
+    fontWeight: "700",
+    fontSize: 13,
+    fontFamily: F
   },
   hint: {
-    color: "#607080"
+    color: "#526080",
+    fontSize: 13,
+    fontFamily: F
   }
 });

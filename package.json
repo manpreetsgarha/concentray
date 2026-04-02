@@ -8,6 +8,13 @@
     "bootstrap:openclaw": "bash scripts/bootstrap/bootstrap_openclaw.sh",
     "cli": "bash scripts/concentray",
     "cli:compat": "bash scripts/ctray",
-    "test": "pnpm --filter @concentray/client-data test && cd apps/cli && python3.11 -m pytest -q"
+    "lint": "pnpm exec biome lint apps/client packages && cd apps/cli && python3.11 -m ruff check src tests",
+    "format": "pnpm exec biome format --write apps/client packages && cd apps/cli && python3.11 -m ruff format src tests",
+    "typecheck": "pnpm --filter @concentray/contracts typecheck && pnpm --filter @concentray/client-data typecheck && pnpm --filter @concentray/client typecheck",
+    "test": "pnpm --filter @concentray/client test && pnpm --filter @concentray/client-data test && cd apps/cli && python3.11 -m pytest -q",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4"
   }
 }

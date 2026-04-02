@@ -1,5 +1,5 @@
 import type { Comment, Task } from "./types.js";
-import { InMemoryStore } from "./inMemoryStore.js";
+import type { InMemoryStore } from "./inMemoryStore.js";
 
 export interface TaskRepository {
   list(filter?: Partial<Pick<Task, "assignee" | "status">>): Promise<Task[]>;

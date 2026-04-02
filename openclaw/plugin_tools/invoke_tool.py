@@ -38,7 +38,7 @@ except ModuleNotFoundError:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_ROOT = REPO_ROOT / "packages" / "contracts" / "openclaw-tools" / "v1"
-CLI_MODULE = [sys.executable, "-m", "concentray_cli.main"]
+CLI_MODULE = [sys.executable, "-m", "concentray_cli.cli_app"]
 
 
 def load_json(path: Path) -> Dict[str, Any]:

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from concentray_cli.main import app
+from concentray_cli.cli_app import app
 
 
 runner = CliRunner()
@@ -591,8 +591,9 @@ def test_agent_install_openclaw_registers_plugin_when_binary_exists(monkeypatch)
             return SimpleNamespace(returncode=0, stdout="bootstrap ok", stderr="")
         return SimpleNamespace(returncode=0, stdout="plugin installed", stderr="")
 
-    monkeypatch.setattr("concentray_cli.main.subprocess.run", fake_run)
-    monkeypatch.setattr("concentray_cli.main.shutil.which", lambda value: "/usr/local/bin/openclaw" if value == "openclaw" else None)
+    monkeypatch.setattr("concentray_cli.commands.agent.subprocess.run", fake_run)
+    monkeypatch.setattr("concentray_cli.installers.subprocess.run", fake_run)
+    monkeypatch.setattr("concentray_cli.installers.shutil.which", lambda value: "/usr/local/bin/openclaw" if value == "openclaw" else None)
 
     result = runner.invoke(app, ["agent", "install", "openclaw", "--json"], env=os.environ.copy())
     assert result.exit_code == 0
@@ -613,8 +614,8 @@ def test_agent_install_openclaw_skips_registration_when_binary_missing(monkeypat
         calls.append(list(cmd))
         return SimpleNamespace(returncode=0, stdout="bootstrap ok", stderr="")
 
-    monkeypatch.setattr("concentray_cli.main.subprocess.run", fake_run)
-    monkeypatch.setattr("concentray_cli.main.shutil.which", lambda value: None)
+    monkeypatch.setattr("concentray_cli.commands.agent.subprocess.run", fake_run)
+    monkeypatch.setattr("concentray_cli.installers.shutil.which", lambda value: None)
 
     result = runner.invoke(app, ["agent", "install", "openclaw", "--json"], env=os.environ.copy())
     assert result.exit_code == 0
@@ -668,7 +669,7 @@ def test_start_uses_next_free_port_when_requested_port_is_busy(monkeypatch) -> N
             captured["port"] = port
             captured["uploads_dir"] = str(uploads_dir)
 
-        monkeypatch.setattr("concentray_cli.main.run_local_api_server", fake_run_local_api_server)
+        monkeypatch.setattr("concentray_cli.commands.runtime.run_local_api_server", fake_run_local_api_server)
 
         result = runner.invoke(
             app,
@@ -715,10 +716,10 @@ def test_start_background_writes_runtime_metadata(monkeypatch, tmp_path: Path) -
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "index.html").write_text("<html></html>")
 
-    monkeypatch.setattr("concentray_cli.main.spawn_background_process", fake_spawn_background_process)
-    monkeypatch.setattr("concentray_cli.main.build_background_web_bundle", fake_build_background_web_bundle)
-    monkeypatch.setattr("concentray_cli.main.time.sleep", lambda _: None)
-    monkeypatch.setattr("concentray_cli.main.shutil.which", lambda name: "/opt/homebrew/bin/pnpm" if name == "pnpm" else None)
+    monkeypatch.setattr("concentray_cli.runtime_support.spawn_background_process", fake_spawn_background_process)
+    monkeypatch.setattr("concentray_cli.runtime_support.build_background_web_bundle", fake_build_background_web_bundle)
+    monkeypatch.setattr("concentray_cli.commands.runtime.time.sleep", lambda _: None)
+    monkeypatch.setattr("concentray_cli.commands.runtime.shutil.which", lambda name: "/opt/homebrew/bin/pnpm" if name == "pnpm" else None)
 
     env = {**os.environ, "TM_RUNTIME_DIR": str(runtime_dir)}
     result = runner.invoke(
@@ -770,11 +771,11 @@ def test_start_background_lan_uses_detected_public_host(monkeypatch, tmp_path: P
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "index.html").write_text("<html></html>")
 
-    monkeypatch.setattr("concentray_cli.main.spawn_background_process", fake_spawn_background_process)
-    monkeypatch.setattr("concentray_cli.main.build_background_web_bundle", fake_build_background_web_bundle)
-    monkeypatch.setattr("concentray_cli.main.time.sleep", lambda _: None)
-    monkeypatch.setattr("concentray_cli.main.shutil.which", lambda name: "/opt/homebrew/bin/pnpm" if name == "pnpm" else None)
-    monkeypatch.setattr("concentray_cli.main.detect_lan_ip", lambda: "192.168.1.23")
+    monkeypatch.setattr("concentray_cli.runtime_support.spawn_background_process", fake_spawn_background_process)
+    monkeypatch.setattr("concentray_cli.runtime_support.build_background_web_bundle", fake_build_background_web_bundle)
+    monkeypatch.setattr("concentray_cli.commands.runtime.time.sleep", lambda _: None)
+    monkeypatch.setattr("concentray_cli.commands.runtime.shutil.which", lambda name: "/opt/homebrew/bin/pnpm" if name == "pnpm" else None)
+    monkeypatch.setattr("concentray_cli.runtime_support.detect_lan_ip", lambda: "192.168.1.23")
 
     env = {**os.environ, "TM_RUNTIME_DIR": str(runtime_dir)}
     result = runner.invoke(
@@ -817,7 +818,7 @@ def test_status_reports_background_runtime(monkeypatch, tmp_path: Path) -> None:
             }
         )
     )
-    monkeypatch.setattr("concentray_cli.main.pid_is_running", lambda pid: pid == 4321)
+    monkeypatch.setattr("concentray_cli.runtime_support.pid_is_running", lambda pid: pid == 4321)
 
     result = runner.invoke(app, ["status", "--json"], env={**os.environ, "TM_RUNTIME_DIR": str(runtime_dir)})
     assert result.exit_code == 0
@@ -847,7 +848,7 @@ def test_stop_clears_background_runtime(monkeypatch, tmp_path: Path) -> None:
             stopped.append(pid)
         return True
 
-    monkeypatch.setattr("concentray_cli.main.terminate_background_pid", fake_terminate_background_pid)
+    monkeypatch.setattr("concentray_cli.runtime_support.terminate_background_pid", fake_terminate_background_pid)
 
     result = runner.invoke(app, ["stop", "--json"], env={**os.environ, "TM_RUNTIME_DIR": str(runtime_dir)})
     assert result.exit_code == 0
@@ -870,7 +871,7 @@ def test_serve_local_api_uses_next_free_port_when_requested_port_is_busy(monkeyp
             captured["port"] = port
             captured["uploads_dir"] = str(uploads_dir)
 
-        monkeypatch.setattr("concentray_cli.main.run_local_api_server", fake_run_local_api_server)
+        monkeypatch.setattr("concentray_cli.commands.runtime.run_local_api_server", fake_run_local_api_server)
 
         result = runner.invoke(
             app,
