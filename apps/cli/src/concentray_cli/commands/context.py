@@ -23,6 +23,8 @@ def context_export(
     if not task:
         raise typer.BadParameter(f"Task '{task_id}' not found")
 
-    comments = provider.list_comments(task_id)
-    envelope = build_context_envelope(task, comments)
+    active_run = provider.get_active_run(task_id)
+    notes = provider.list_notes(task_id)
+    activity = provider.list_activity(task_id)
+    envelope = build_context_envelope(task, active_run, notes, activity)
     emit({"ok": True, "context": envelope}, as_json)

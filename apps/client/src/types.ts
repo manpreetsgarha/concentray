@@ -1,14 +1,26 @@
 export type {
   Actor,
-  CommentType,
   InputRequest,
+  NoteKind,
+  RunStatus,
+  Runtime,
   TaskExecutionMode,
-  TaskStatus
+  TaskStatus,
+  UpdatedBy
 } from "@concentray/contracts";
 
-import type { Actor, CommentType, InputRequest, TaskExecutionMode, TaskStatus } from "@concentray/contracts";
+import type {
+  Actor,
+  InputRequest,
+  NoteKind,
+  RunStatus,
+  Runtime,
+  TaskExecutionMode,
+  TaskStatus,
+  UpdatedBy,
+} from "@concentray/contracts";
 
-export interface CommentAttachmentMeta {
+export interface NoteAttachmentMeta {
   kind?: "image" | "video" | "text" | "csv" | "file";
   filename?: string;
   mime_type?: string;
@@ -25,33 +37,58 @@ export interface Task {
   id: string;
   title: string;
   status: TaskStatus;
-  createdBy: Actor;
   assignee: Actor;
+  targetRuntime: Runtime | null;
   executionMode: TaskExecutionMode;
-  contextLink?: string;
-  aiUrgency?: number;
-  inputRequest?: InputRequest | null;
-  inputResponse?: Record<string, unknown> | null;
-  workerId?: string;
-  claimedAt?: string;
+  contextLink: string | null;
+  aiUrgency: number;
+  inputRequest: InputRequest | Record<string, unknown> | null;
+  inputResponse: Record<string, unknown> | null;
+  activeRunId: string | null;
+  checkInRequestedAt: string | null;
+  checkInRequestedBy: UpdatedBy | null;
+  createdAt: string;
   updatedAt: string;
+  updatedBy: UpdatedBy;
 }
 
-export interface Comment {
+export interface Note {
   id: string;
   taskId: string;
-  author: Actor;
-  message: string;
-  type: CommentType;
-  timestamp: string;
-  attachmentLink?: string;
-  metadata?: Record<string, unknown> | null;
-  attachmentMeta?: CommentAttachmentMeta;
+  author: UpdatedBy;
+  kind: NoteKind;
+  content: string;
+  attachment: NoteAttachmentMeta | Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface Run {
+  id: string;
+  taskId: string;
+  runtime: Runtime;
+  workerId: string;
+  status: RunStatus;
+  startedAt: string;
+  lastHeartbeatAt: string;
+  endedAt: string | null;
+  leaseSeconds: number;
+  endReason: string | null;
+}
+
+export interface Activity {
+  id: string;
+  taskId: string;
+  runId: string | null;
+  runtime: Runtime | null;
+  actor: UpdatedBy;
+  kind: string;
+  summary: string;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 export interface WorkspaceSummary {
   name: string;
-  provider?: string;
-  store?: string;
+  store?: string | null;
   active: boolean;
 }

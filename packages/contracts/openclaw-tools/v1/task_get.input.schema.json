@@ -1,11 +1,9 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "task_get.input.v1",
+  "$id": "task_get.input.v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "task_id": { "type": "string", "minLength": 1 },
-    "with_comments": { "type": "boolean", "default": true }
+    "task_id": { "type": "string", "minLength": 1 }
   },
   "required": ["task_id"]
 }

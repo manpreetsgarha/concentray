@@ -1,10 +1,10 @@
 {
-  "$id": "context_export.output.v2",
+  "$id": "activity_add.output.v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "ok": { "type": "boolean" },
-    "context": { "type": "object" }
+    "activity": { "type": "object" }
   },
-  "required": ["ok", "context"]
+  "required": ["ok", "activity"]
 }

@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import json
 import os
 from typing import Any, Optional
 
 import typer
 
-from concentray_cli.models import Actor, TaskStatus, iso_now
 from concentray_cli.output import emit
 from concentray_cli.parsing import (
     normalize_worker_id,
-    parse_actor,
+    parse_assignee,
     parse_execution_mode,
     parse_execution_modes,
+    parse_json_object_option,
+    parse_runtime,
     parse_status,
     parse_statuses,
     parse_updated_by,
@@ -22,63 +22,124 @@ from concentray_cli.provider_factory import make_provider
 task_app = typer.Typer(help="Task commands")
 
 
+def _pending_check_in(task: Any) -> dict[str, Any] | None:
+    if not task:
+        return None
+    requested_at = getattr(task, "check_in_requested_at", None)
+    requested_by = getattr(task, "check_in_requested_by", None)
+    if not requested_at:
+        return None
+    return {
+        "requested_at": requested_at,
+        "requested_by": requested_by,
+    }
+
+
+@task_app.command("create")
+def task_create(
+    title: str = typer.Option(..., "--title"),
+    assignee: str = typer.Option("ai", "--assignee"),
+    target_runtime: Optional[str] = typer.Option(None, "--target-runtime"),
+    execution_mode: Optional[str] = typer.Option(None, "--execution-mode"),
+    ai_urgency: int = typer.Option(3, "--ai-urgency"),
+    context_link: Optional[str] = typer.Option(None, "--context-link"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    provider = make_provider()
+    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "human"))
+    payload: dict[str, Any] = {
+        "title": title,
+        "assignee": parse_assignee(assignee).value,
+        "target_runtime": parse_runtime(target_runtime).value if target_runtime else None,
+        "execution_mode": parse_execution_mode(execution_mode).value if execution_mode else None,
+        "ai_urgency": ai_urgency,
+        "context_link": context_link,
+    }
+    created = provider.create_task(payload, updated_by=updated_by)
+    emit({"ok": True, "task": created.model_dump()}, as_json)
+
+
 @task_app.command("get-next")
 def task_get_next(
-    assignee: str = typer.Option("ai", "--assignee"),
+    runtime: str = typer.Option(..., "--runtime"),
     status: str = typer.Option("pending,in_progress", "--status"),
-    execution_mode: str = typer.Option("session,autonomous", "--execution-mode"),
+    execution_mode: str = typer.Option("autonomous", "--execution-mode"),
     worker_id: Optional[str] = typer.Option(None, "--worker-id"),
-    lease_seconds: int = typer.Option(1800, "--lease-seconds"),
+    lease_seconds: int = typer.Option(600, "--lease-seconds"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     provider = make_provider()
     next_task = provider.get_next_task(
-        assignee=assignee,
+        runtime=parse_runtime(runtime),
         statuses=parse_statuses(status),
         execution_modes=parse_execution_modes(execution_mode),
         worker_id=normalize_worker_id(worker_id),
         lease_seconds=lease_seconds,
     )
-    emit({"ok": True, "task": next_task.model_dump(by_alias=True) if next_task else None}, as_json)
+    active_run = provider.get_active_run(next_task.id) if next_task else None
+    emit(
+        {
+            "ok": True,
+            "task": next_task.model_dump() if next_task else None,
+            "active_run": active_run.model_dump() if active_run else None,
+            "pending_check_in": _pending_check_in(next_task),
+        },
+        as_json,
+    )
 
 
 @task_app.command("claim-next")
 def task_claim_next(
+    runtime: str = typer.Option(..., "--runtime"),
     worker_id: str = typer.Option(..., "--worker-id"),
-    assignee: str = typer.Option("ai", "--assignee"),
     status: str = typer.Option("pending,in_progress", "--status"),
     execution_mode: str = typer.Option("autonomous", "--execution-mode"),
-    lease_seconds: int = typer.Option(1800, "--lease-seconds"),
+    lease_seconds: int = typer.Option(600, "--lease-seconds"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     provider = make_provider()
-    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "AI"))
-    claimed = provider.claim_next_task(
+    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "ai"))
+    task, run = provider.claim_next_task(
+        runtime=parse_runtime(runtime),
         worker_id=worker_id,
-        assignee=assignee,
         statuses=parse_statuses(status),
         execution_modes=parse_execution_modes(execution_mode),
         updated_by=updated_by,
         lease_seconds=lease_seconds,
     )
-    emit({"ok": True, "task": claimed.model_dump(by_alias=True) if claimed else None}, as_json)
+    emit(
+        {
+            "ok": True,
+            "task": task.model_dump() if task else None,
+            "active_run": run.model_dump() if run else None,
+            "pending_check_in": _pending_check_in(task),
+        },
+        as_json,
+    )
 
 
 @task_app.command("get")
 def task_get(
     task_id: str,
-    with_comments: bool = typer.Option(False, "--with-comments"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     provider = make_provider()
     task = provider.get_task(task_id)
-    comments = provider.list_comments(task_id) if with_comments else []
+    if not task:
+        raise typer.BadParameter(f"Task '{task_id}' not found")
+
+    active_run = provider.get_active_run(task_id)
+    notes = provider.list_notes(task_id)
+    activity = provider.list_activity(task_id)
 
     emit(
         {
-            "ok": task is not None,
-            "task": task.model_dump(by_alias=True) if task else None,
-            "comments": [comment.model_dump(by_alias=True) for comment in comments],
+            "ok": True,
+            "task": task.model_dump(),
+            "active_run": active_run.model_dump() if active_run else None,
+            "notes": [note.model_dump() for note in notes],
+            "activity": [entry.model_dump() for entry in activity],
+            "pending_check_in": _pending_check_in(task),
         },
         as_json,
     )
@@ -89,11 +150,68 @@ def task_update(
     task_id: str,
     status: Optional[str] = typer.Option(None, "--status"),
     assignee: Optional[str] = typer.Option(None, "--assignee"),
+    target_runtime: Optional[str] = typer.Option(None, "--target-runtime"),
+    clear_target_runtime: bool = typer.Option(False, "--clear-target-runtime"),
     execution_mode: Optional[str] = typer.Option(None, "--execution-mode"),
-    urgency: Optional[int] = typer.Option(None, "--urgency"),
+    ai_urgency: Optional[int] = typer.Option(None, "--ai-urgency"),
+    context_link: Optional[str] = typer.Option(None, "--context-link"),
     input_request: Optional[str] = typer.Option(None, "--input-request"),
+    input_response: Optional[str] = typer.Option(None, "--input-response"),
+    clear_check_in: bool = typer.Option(False, "--clear-check-in"),
+    runtime: Optional[str] = typer.Option(None, "--runtime"),
     worker_id: Optional[str] = typer.Option(None, "--worker-id"),
-    clear_worker: bool = typer.Option(False, "--clear-worker"),
+    allow_override: bool = typer.Option(False, "--allow-override"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    provider = make_provider()
+    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "ai"))
+    patch: dict[str, Any] = {"clear_check_in": clear_check_in}
+
+    if status is not None:
+        patch["status"] = parse_status(status).value
+    if assignee is not None:
+        patch["assignee"] = parse_assignee(assignee).value
+    if clear_target_runtime:
+        patch["target_runtime"] = None
+    elif target_runtime is not None:
+        patch["target_runtime"] = parse_runtime(target_runtime).value
+    if execution_mode is not None:
+        patch["execution_mode"] = parse_execution_mode(execution_mode).value
+    if ai_urgency is not None:
+        patch["ai_urgency"] = ai_urgency
+    if context_link is not None:
+        patch["context_link"] = context_link
+    if input_request is not None:
+        patch["input_request"] = parse_json_object_option(input_request, option_name="--input-request")
+    if input_response is not None:
+        patch["input_response"] = parse_json_object_option(input_response, option_name="--input-response")
+
+    updated = provider.update_task(
+        task_id,
+        patch,
+        updated_by=updated_by,
+        runtime=parse_runtime(runtime) if runtime else None,
+        worker_id=normalize_worker_id(worker_id),
+        allow_override=allow_override,
+    )
+    active_run = provider.get_active_run(task_id)
+
+    emit(
+        {
+            "ok": True,
+            "task": updated.model_dump(),
+            "active_run": active_run.model_dump() if active_run else None,
+            "pending_check_in": _pending_check_in(updated),
+        },
+        as_json,
+    )
+
+
+@task_app.command("heartbeat")
+def task_heartbeat(
+    task_id: str,
+    runtime: str = typer.Option(..., "--runtime"),
+    worker_id: str = typer.Option(..., "--worker-id"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     provider = make_provider()
@@ -101,59 +219,37 @@ def task_update(
     if not task:
         raise typer.BadParameter(f"Task '{task_id}' not found")
 
-    now = iso_now()
-    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "AI"))
-
-    patch_fields: dict[str, Any] = {}
-    if status is not None:
-        patch_fields["status"] = parse_status(status)
-
-    if assignee is not None:
-        patch_fields["assignee"] = parse_actor(assignee)
-
-    if execution_mode is not None:
-        patch_fields["execution_mode"] = parse_execution_mode(execution_mode)
-
-    if urgency is not None:
-        if urgency < 1 or urgency > 5:
-            raise typer.BadParameter("--urgency must be between 1 and 5")
-        patch_fields["ai_urgency"] = urgency
-
-    if input_request is not None:
-        if input_request.strip() == "null":
-            patch_fields["input_request"] = None
-            patch_fields["input_request_version"] = None
-        else:
-            parsed = json.loads(input_request)
-            patch_fields["input_request"] = parsed
-            patch_fields["input_request_version"] = parsed.get("schema_version", "1.0")
-
-    normalized_worker = normalize_worker_id(worker_id)
-    if normalized_worker is not None:
-        patch_fields["worker_id"] = normalized_worker
-        patch_fields["claimed_at"] = now
-
-    next_status = patch_fields.get("status", task.status)
-    next_assignee = patch_fields.get("assignee", task.assignee)
-    if clear_worker or next_status != TaskStatus.IN_PROGRESS or next_assignee != Actor.AI:
-        patch_fields["worker_id"] = None
-        patch_fields["claimed_at"] = None
-
-    for field_name in patch_fields:
-        task.field_clock[field_name] = now
-
-    updated = task.model_copy(
-        update={
-            **patch_fields,
-            "updated_at": now,
-            "updated_by": updated_by,
-            "version": task.version + 1,
-            "field_clock": task.field_clock,
-        }
+    run = provider.heartbeat(task_id, runtime=parse_runtime(runtime), worker_id=worker_id)
+    refreshed_task = provider.get_task(task_id)
+    emit(
+        {
+            "ok": True,
+            "task": refreshed_task.model_dump() if refreshed_task else None,
+            "active_run": run.model_dump(),
+            "pending_check_in": _pending_check_in(refreshed_task),
+        },
+        as_json,
     )
-    provider.upsert_task(updated)
 
-    emit({"ok": True, "task": updated.model_dump(by_alias=True)}, as_json)
+
+@task_app.command("request-check-in")
+def task_request_check_in(
+    task_id: str,
+    requested_by: str = typer.Option("human", "--requested-by"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    provider = make_provider()
+    task = provider.request_check_in(task_id, requested_by=parse_updated_by(requested_by))
+    active_run = provider.get_active_run(task_id)
+    emit(
+        {
+            "ok": True,
+            "task": task.model_dump(),
+            "active_run": active_run.model_dump() if active_run else None,
+            "pending_check_in": _pending_check_in(task),
+        },
+        as_json,
+    )
 
 
 @task_app.command("delete")
@@ -162,9 +258,8 @@ def task_delete(
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     provider = make_provider()
-    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "AI"))
+    updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "human"))
     deleted = provider.delete_task(task_id, updated_by=updated_by)
     if not deleted:
         raise typer.BadParameter(f"Task '{task_id}' not found")
-
-    emit({"ok": True, "task": deleted.model_dump(by_alias=True)}, as_json)
+    emit({"ok": True, "deleted": True, "task_id": task_id}, as_json)

@@ -70,7 +70,6 @@ def workspace_add(
     payload = load_workspace_config()
     workspaces = payload.get("workspaces") or {}
     workspaces[name] = {
-        "provider": "local_json",
         "store": str(store_path),
     }
     payload["workspaces"] = workspaces
@@ -82,7 +81,6 @@ def workspace_add(
         {
             "ok": True,
             "workspace": name,
-            "provider": "local_json",
             "store": str(store_path),
             "active_workspace": payload.get("active_workspace"),
             "config_path": str(workspace_config_path()),
@@ -102,7 +100,6 @@ def workspace_list(as_json: bool = typer.Option(False, "--json")) -> None:
         result.append(
             {
                 "name": name,
-                "provider": record.get("provider"),
                 "store": record.get("store"),
                 "active": name == active,
             }

@@ -12,7 +12,15 @@ from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
 from concentray_cli.context import build_context_envelope
-from concentray_cli.models import Actor, Comment, CommentType, Task, TaskExecutionMode, TaskStatus, UpdatedBy, iso_now
+from concentray_cli.models import (
+    Assignee,
+    DEFAULT_LEASE_SECONDS,
+    Runtime,
+    TaskExecutionMode,
+    TaskStatus,
+    UpdatedBy,
+    iso_now,
+)
 from concentray_cli.providers.base import Provider
 from concentray_cli.providers.local_json import LocalJsonProvider
 from concentray_cli.workspace_store import (
@@ -24,57 +32,23 @@ from concentray_cli.workspace_store import (
 
 
 def _status_from_wire(raw: str) -> TaskStatus:
-    mapping = {
-        "pending": TaskStatus.PENDING,
-        "in_progress": TaskStatus.IN_PROGRESS,
-        "blocked": TaskStatus.BLOCKED,
-        "done": TaskStatus.DONE,
-        "Pending": TaskStatus.PENDING,
-        "In Progress": TaskStatus.IN_PROGRESS,
-        "Blocked": TaskStatus.BLOCKED,
-        "Done": TaskStatus.DONE,
-    }
-    if raw not in mapping:
-        raise ValueError(f"Invalid status: {raw}")
-    return mapping[raw]
+    return TaskStatus(str(raw).strip().lower())
 
 
-def _actor_from_wire(raw: str) -> Actor:
-    mapping = {
-        "ai": Actor.AI,
-        "human": Actor.HUMAN,
-        "AI": Actor.AI,
-        "Human": Actor.HUMAN,
-    }
-    if raw not in mapping:
-        raise ValueError(f"Invalid actor: {raw}")
-    return mapping[raw]
+def _assignee_from_wire(raw: str) -> Assignee:
+    return Assignee(str(raw).strip().lower())
 
 
 def _execution_mode_from_wire(raw: str) -> TaskExecutionMode:
-    mapping = {
-        "autonomous": TaskExecutionMode.AUTONOMOUS,
-        "session": TaskExecutionMode.SESSION,
-        "Autonomous": TaskExecutionMode.AUTONOMOUS,
-        "Session": TaskExecutionMode.SESSION,
-    }
-    if raw not in mapping:
-        raise ValueError(f"Invalid execution mode: {raw}")
-    return mapping[raw]
+    return TaskExecutionMode(str(raw).strip().lower())
+
+
+def _runtime_from_wire(raw: str) -> Runtime:
+    return Runtime(str(raw).strip().lower())
 
 
 def _updated_by_from_wire(raw: str) -> UpdatedBy:
-    mapping = {
-        "ai": UpdatedBy.AI,
-        "human": UpdatedBy.HUMAN,
-        "system": UpdatedBy.SYSTEM,
-        "AI": UpdatedBy.AI,
-        "Human": UpdatedBy.HUMAN,
-        "System": UpdatedBy.SYSTEM,
-    }
-    if raw not in mapping:
-        raise ValueError(f"Invalid updated_by: {raw}")
-    return mapping[raw]
+    return UpdatedBy(str(raw).strip().lower())
 
 
 def _infer_kind(mime_type: str, filename: str) -> str:
@@ -90,21 +64,14 @@ def _infer_kind(mime_type: str, filename: str) -> str:
     return "file"
 
 
-def _normalize_extension(filename: str) -> str:
-    return Path(filename).suffix.lower()
-
-
 def _is_allowed_upload(mime_type: str, filename: str) -> bool:
     lowered = mime_type.lower()
-    ext = _normalize_extension(filename)
-
+    ext = Path(filename).suffix.lower()
     if lowered.startswith("image/") or lowered.startswith("video/"):
         return True
     if lowered in {"text/plain", "text/csv"}:
         return True
-    if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".mp4", ".mov", ".m4v", ".webm", ".txt", ".csv"}:
-        return True
-    return False
+    return ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".mp4", ".mov", ".m4v", ".webm", ".txt", ".csv"}
 
 
 def _max_upload_bytes() -> int:
@@ -113,20 +80,13 @@ def _max_upload_bytes() -> int:
         mb = int(raw)
     except ValueError:
         mb = 25
-    if mb < 1:
-        mb = 1
-    return mb * 1024 * 1024
+    return max(mb, 1) * 1024 * 1024
 
 
 def _build_preview_text(content: bytes, kind: str) -> Optional[str]:
     if kind not in {"text", "csv"}:
         return None
-
-    try:
-        decoded = content.decode("utf-8", errors="replace")
-    except Exception:
-        return None
-
+    decoded = content.decode("utf-8", errors="replace")
     snippet = decoded[:2000]
     lines = snippet.splitlines()
     if len(lines) > 20:
@@ -152,7 +112,6 @@ class LocalApiRuntime:
             workspace_rows.append(
                 {
                     "name": name,
-                    "provider": record.get("provider"),
                     "store": record.get("store"),
                     "active": name == payload.get("active_workspace"),
                 }
@@ -175,10 +134,7 @@ class LocalApiRuntime:
 
         payload = load_workspace_config()
         workspaces = payload.get("workspaces") or {}
-        workspaces[workspace_name] = {
-            "provider": "local_json",
-            "store": str(store_path),
-        }
+        workspaces[workspace_name] = {"store": str(store_path)}
         payload["workspaces"] = workspaces
         if set_active or not payload.get("active_workspace"):
             payload["active_workspace"] = workspace_name
@@ -195,17 +151,15 @@ class LocalApiRuntime:
         return self.workspace_payload()
 
     def remove_workspace(self, name: str) -> Dict[str, Any]:
-        workspace_name = name.strip()
         payload = load_workspace_config()
         workspaces = payload.get("workspaces") or {}
-        if workspace_name not in workspaces:
-            raise ValueError(f"Workspace '{workspace_name}' not found")
+        if name not in workspaces:
+            raise ValueError(f"Workspace '{name}' not found")
         if len(workspaces) <= 1:
             raise ValueError("Cannot remove the last workspace")
-
-        del workspaces[workspace_name]
+        del workspaces[name]
         payload["workspaces"] = workspaces
-        if payload.get("active_workspace") == workspace_name:
+        if payload.get("active_workspace") == name:
             payload["active_workspace"] = sorted(workspaces.keys())[0]
         save_workspace_config(payload)
         return self.workspace_payload()
@@ -279,7 +233,6 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             if not file_path.exists() or not file_path.is_file():
                 self._send(404, {"ok": False, "error": "File not found"})
                 return
-
             mime_type, _ = mimetypes.guess_type(str(file_path))
             mime_type = mime_type or "application/octet-stream"
             data = file_path.read_bytes()
@@ -296,33 +249,20 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             assignee = (query.get("assignee") or [None])[0]
             status = (query.get("status") or [None])[0]
             execution_mode = (query.get("execution_mode") or [None])[0]
+            target_runtime = (query.get("target_runtime") or [None])[0]
 
             tasks = self._provider().list_tasks()
             if assignee:
-                tasks = [
-                    task
-                    for task in tasks
-                    if str(task.assignee).lower() == assignee.lower()
-                    or getattr(task.assignee, "value", "").lower() == assignee.lower()
-                ]
+                tasks = [task for task in tasks if task.assignee == _assignee_from_wire(assignee)]
             if status:
-                status_value = _status_from_wire(status).value
-                tasks = [
-                    task
-                    for task in tasks
-                    if (task.status.value if hasattr(task.status, "value") else str(task.status))
-                    == status_value
-                ]
+                tasks = [task for task in tasks if task.status == _status_from_wire(status)]
             if execution_mode:
-                execution_mode_value = _execution_mode_from_wire(execution_mode).value
-                tasks = [
-                    task
-                    for task in tasks
-                    if (task.execution_mode.value if hasattr(task.execution_mode, "value") else str(task.execution_mode))
-                    == execution_mode_value
-                ]
+                tasks = [task for task in tasks if task.execution_mode == _execution_mode_from_wire(execution_mode)]
+            if target_runtime:
+                runtime = _runtime_from_wire(target_runtime)
+                tasks = [task for task in tasks if task.target_runtime == runtime]
 
-            self._send(200, {"ok": True, "tasks": [task.model_dump(by_alias=True) for task in tasks]})
+            self._send(200, {"ok": True, "tasks": [task.model_dump() for task in tasks]})
             return
 
         if path.startswith("/tasks/"):
@@ -336,16 +276,34 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                 self._send(404, {"ok": False, "error": f"Task '{task_id}' not found"})
                 return
 
-            if suffix == "comments":
-                comments = self._provider().list_comments(task_id)
-                self._send(
-                    200,
-                    {"ok": True, "comments": [comment.model_dump(by_alias=True) for comment in comments]},
-                )
+            if suffix == "notes":
+                notes = self._provider().list_notes(task_id)
+                self._send(200, {"ok": True, "notes": [note.model_dump() for note in notes]})
+                return
+
+            if suffix == "activity":
+                activity = self._provider().list_activity(task_id)
+                self._send(200, {"ok": True, "activity": [entry.model_dump() for entry in activity]})
                 return
 
             if suffix is None:
-                self._send(200, {"ok": True, "task": task.model_dump(by_alias=True)})
+                active_run = self._provider().get_active_run(task_id)
+                self._send(
+                    200,
+                    {
+                        "ok": True,
+                        "task": task.model_dump(),
+                        "active_run": active_run.model_dump() if active_run else None,
+                        "pending_check_in": (
+                            {
+                                "requested_at": task.check_in_requested_at,
+                                "requested_by": task.check_in_requested_by,
+                            }
+                            if task.check_in_requested_at
+                            else None
+                        ),
+                    },
+                )
                 return
 
             self._send(404, {"ok": False, "error": "Not found"})
@@ -357,8 +315,10 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             if not task:
                 self._send(404, {"ok": False, "error": f"Task '{task_id}' not found"})
                 return
-            comments = self._provider().list_comments(task_id)
-            envelope = build_context_envelope(task, comments)
+            active_run = self._provider().get_active_run(task_id)
+            notes = self._provider().list_notes(task_id)
+            activity = self._provider().list_activity(task_id)
+            envelope = build_context_envelope(task, active_run, notes, activity)
             self._send(200, {"ok": True, "context": envelope})
             return
 
@@ -416,24 +376,12 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                 return
 
             if not _is_allowed_upload(mime_type, safe_name):
-                self._send(
-                    400,
-                    {
-                        "ok": False,
-                        "error": "Unsupported file type. Allowed: images, videos, .txt, .csv",
-                    },
-                )
+                self._send(400, {"ok": False, "error": "Unsupported file type. Allowed: images, videos, .txt, .csv"})
                 return
 
             max_bytes = _max_upload_bytes()
             if len(raw_bytes) > max_bytes:
-                self._send(
-                    413,
-                    {
-                        "ok": False,
-                        "error": f"File exceeds limit of {max_bytes // (1024 * 1024)} MB",
-                    },
-                )
+                self._send(413, {"ok": False, "error": f"File exceeds limit of {max_bytes // (1024 * 1024)} MB"})
                 return
 
             self.uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -460,94 +408,145 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/tasks":
-            now = iso_now()
-            created_by = _actor_from_wire(str(payload.get("created_by", "Human")))
-            assignee = _actor_from_wire(str(payload.get("assignee", "AI")))
-            raw_execution_mode = payload.get("execution_mode")
-            execution_mode = (
-                _execution_mode_from_wire(str(raw_execution_mode))
-                if raw_execution_mode is not None
-                else (TaskExecutionMode.AUTONOMOUS if assignee == Actor.AI else TaskExecutionMode.SESSION)
-            )
-            title = str(payload.get("title", "Untitled Task")).strip() or "Untitled Task"
-
-            task = Task(
-                Title=title,
-                Status=TaskStatus.PENDING,
-                Created_By=created_by,
-                Assignee=assignee,
-                Execution_Mode=execution_mode,
-                Context_Link=payload.get("context_link"),
-                AI_Urgency=int(payload.get("ai_urgency", 3)),
-                Input_Request=None,
-                Input_Request_Version=None,
-                Input_Response=None,
-                Updated_By=UpdatedBy.HUMAN,
-                Field_Clock={
-                    "title": now,
-                    "status": now,
-                    "assignee": now,
-                    "created_by": now,
-                    "execution_mode": now,
-                },
-            )
-            self._provider().upsert_task(task)
-            self._send(201, {"ok": True, "task": task.model_dump(by_alias=True)})
+            try:
+                task = self._provider().create_task(
+                    payload,
+                    updated_by=_updated_by_from_wire(str(payload.get("updated_by", "human"))),
+                )
+            except (ValueError, TypeError) as exc:
+                self._send(400, {"ok": False, "error": str(exc)})
+                return
+            self._send(201, {"ok": True, "task": task.model_dump()})
             return
 
         if path == "/tasks/claim-next":
             try:
-                claimed = self._provider().claim_next_task(
+                task, run = self._provider().claim_next_task(
+                    runtime=_runtime_from_wire(str(payload.get("runtime", ""))),
                     worker_id=str(payload.get("worker_id", "")).strip(),
-                    assignee=str(payload.get("assignee", "ai")),
                     statuses=[_status_from_wire(item) for item in payload.get("status", ["pending", "in_progress"])],
                     execution_modes=[
                         _execution_mode_from_wire(item)
                         for item in payload.get("execution_mode", ["autonomous"])
                     ],
-                    updated_by=_updated_by_from_wire(str(payload.get("updated_by", "AI"))),
-                    lease_seconds=int(payload.get("lease_seconds", 1800)),
+                    updated_by=_updated_by_from_wire(str(payload.get("updated_by", "ai"))),
+                    lease_seconds=int(payload.get("lease_seconds", DEFAULT_LEASE_SECONDS)),
                 )
             except (ValueError, TypeError) as exc:
                 self._send(400, {"ok": False, "error": str(exc)})
                 return
 
-            self._send(200, {"ok": True, "task": claimed.model_dump(by_alias=True) if claimed else None})
+            self._send(
+                200,
+                {
+                    "ok": True,
+                    "task": task.model_dump() if task else None,
+                    "active_run": run.model_dump() if run else None,
+                    "pending_check_in": (
+                        {
+                            "requested_at": task.check_in_requested_at,
+                            "requested_by": task.check_in_requested_by,
+                        }
+                        if task and task.check_in_requested_at
+                        else None
+                    ),
+                },
+            )
             return
 
         if path.startswith("/tasks/"):
             task_id, suffix = self._route_task_path(path)
-            if not task_id or suffix != "comments":
+            if not task_id:
                 self._send(404, {"ok": False, "error": "Not found"})
                 return
 
-            task = self._provider().get_task(task_id)
-            if not task:
-                self._send(404, {"ok": False, "error": f"Task '{task_id}' not found"})
+            if suffix == "notes":
+                try:
+                    note = self._provider().add_note(
+                        task_id,
+                        author=_updated_by_from_wire(str(payload.get("author", "human"))),
+                        content=str(payload.get("content", "")),
+                        kind=str(payload.get("kind", "note")),
+                        attachment=payload.get("attachment"),
+                    )
+                except (ValueError, TypeError) as exc:
+                    self._send(400, {"ok": False, "error": str(exc)})
+                    return
+                self._send(201, {"ok": True, "note": note.model_dump()})
                 return
 
-            type_mapping = {
-                "message": CommentType.MESSAGE,
-                "log": CommentType.LOG,
-                "decision": CommentType.DECISION,
-                "attachment": CommentType.ATTACHMENT,
-            }
-            raw_type = str(payload.get("type", "message")).lower()
-            if raw_type not in type_mapping:
-                self._send(400, {"ok": False, "error": "Invalid comment type"})
+            if suffix == "activity":
+                try:
+                    entry = self._provider().add_activity(
+                        task_id,
+                        actor=_updated_by_from_wire(str(payload.get("actor", "ai"))),
+                        kind=str(payload.get("kind", "")),
+                        summary=str(payload.get("summary", "")),
+                        payload=payload.get("payload"),
+                        runtime=_runtime_from_wire(str(payload["runtime"])) if payload.get("runtime") else None,
+                        worker_id=str(payload.get("worker_id", "")).strip() or None,
+                        clear_check_in=bool(payload.get("clear_check_in", False)),
+                    )
+                except (ValueError, TypeError) as exc:
+                    self._send(400, {"ok": False, "error": str(exc)})
+                    return
+                self._send(201, {"ok": True, "activity": entry.model_dump()})
                 return
 
-            author = _actor_from_wire(str(payload.get("author", "Human")))
-            comment = Comment(
-                Task_ID=task_id,
-                Author=author,
-                Message=str(payload.get("message", "")),
-                Type=type_mapping[raw_type],
-                Attachment_Link=payload.get("attachment_link"),
-                Metadata=payload.get("metadata"),
-            )
-            self._provider().add_comment(comment)
-            self._send(201, {"ok": True, "comment": comment.model_dump(by_alias=True)})
+            if suffix == "heartbeat":
+                try:
+                    run = self._provider().heartbeat(
+                        task_id,
+                        runtime=_runtime_from_wire(str(payload.get("runtime", ""))),
+                        worker_id=str(payload.get("worker_id", "")),
+                    )
+                    task = self._provider().get_task(task_id)
+                except (ValueError, TypeError) as exc:
+                    self._send(400, {"ok": False, "error": str(exc)})
+                    return
+                self._send(
+                    200,
+                    {
+                        "ok": True,
+                        "task": task.model_dump() if task else None,
+                        "active_run": run.model_dump(),
+                        "pending_check_in": (
+                            {
+                                "requested_at": task.check_in_requested_at,
+                                "requested_by": task.check_in_requested_by,
+                            }
+                            if task and task.check_in_requested_at
+                            else None
+                        ),
+                    },
+                )
+                return
+
+            if suffix == "check-in-request":
+                try:
+                    task = self._provider().request_check_in(
+                        task_id,
+                        requested_by=_updated_by_from_wire(str(payload.get("requested_by", "human"))),
+                    )
+                    active_run = self._provider().get_active_run(task_id)
+                except (ValueError, TypeError) as exc:
+                    self._send(400, {"ok": False, "error": str(exc)})
+                    return
+                self._send(
+                    201,
+                    {
+                        "ok": True,
+                        "task": task.model_dump(),
+                        "active_run": active_run.model_dump() if active_run else None,
+                        "pending_check_in": {
+                            "requested_at": task.check_in_requested_at,
+                            "requested_by": task.check_in_requested_by,
+                        },
+                    },
+                )
+                return
+
+            self._send(404, {"ok": False, "error": "Not found"})
             return
 
         self._send(404, {"ok": False, "error": "Not found"})
@@ -575,96 +574,37 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             self._send(404, {"ok": False, "error": "Not found"})
             return
 
-        task = self._provider().get_task(task_id)
-        if not task:
-            self._send(404, {"ok": False, "error": f"Task '{task_id}' not found"})
+        patch = self._read_json()
+        try:
+            task = self._provider().update_task(
+                task_id,
+                patch,
+                updated_by=_updated_by_from_wire(str(patch.get("updated_by", "human"))),
+                runtime=_runtime_from_wire(str(patch["runtime"])) if patch.get("runtime") else None,
+                worker_id=str(patch.get("worker_id", "")).strip() or None,
+                allow_override=bool(patch.get("allow_override", False)),
+            )
+            active_run = self._provider().get_active_run(task_id)
+        except (ValueError, TypeError) as exc:
+            self._send(400, {"ok": False, "error": str(exc)})
             return
 
-        patch = self._read_json()
-        now = iso_now()
-
-        updates: Dict[str, Any] = {
-            "updated_at": now,
-            "updated_by": UpdatedBy.HUMAN,
-            "version": task.version + 1,
-            "field_clock": dict(task.field_clock),
-        }
-
-        if "title" in patch and patch["title"] is not None:
-            title = str(patch["title"]).strip()
-            if not title:
-                self._send(400, {"ok": False, "error": "title cannot be empty"})
-                return
-            updates["title"] = title
-            updates["field_clock"]["title"] = now
-
-        if "status" in patch and patch["status"] is not None:
-            updates["status"] = _status_from_wire(str(patch["status"]))
-            updates["field_clock"]["status"] = now
-
-        if "created_by" in patch and patch["created_by"] is not None:
-            updates["created_by"] = _actor_from_wire(str(patch["created_by"]))
-            updates["field_clock"]["created_by"] = now
-
-        if "assignee" in patch and patch["assignee"] is not None:
-            updates["assignee"] = _actor_from_wire(str(patch["assignee"]))
-            updates["field_clock"]["assignee"] = now
-
-        if "execution_mode" in patch and patch["execution_mode"] is not None:
-            updates["execution_mode"] = _execution_mode_from_wire(str(patch["execution_mode"]))
-            updates["field_clock"]["execution_mode"] = now
-
-        if "ai_urgency" in patch and patch["ai_urgency"] is not None:
-            urgency = int(patch["ai_urgency"])
-            if urgency < 1 or urgency > 5:
-                self._send(400, {"ok": False, "error": "ai_urgency must be between 1 and 5"})
-                return
-            updates["ai_urgency"] = urgency
-            updates["field_clock"]["ai_urgency"] = now
-
-        if "context_link" in patch:
-            raw_context_link = patch["context_link"]
-            updates["context_link"] = str(raw_context_link).strip() or None if raw_context_link else None
-            updates["field_clock"]["context_link"] = now
-
-        if "input_request" in patch:
-            updates["input_request"] = patch["input_request"]
-            updates["input_request_version"] = (
-                patch["input_request"].get("schema_version", "1.0")
-                if isinstance(patch["input_request"], dict)
-                else None
-            )
-            updates["field_clock"]["input_request"] = now
-            updates["field_clock"]["input_request_version"] = now
-
-        if "input_response" in patch:
-            updates["input_response"] = patch["input_response"]
-            updates["field_clock"]["input_response"] = now
-
-        if "worker_id" in patch:
-            raw_worker_id = str(patch["worker_id"]).strip() if patch["worker_id"] is not None else ""
-            updates["worker_id"] = raw_worker_id or None
-            updates["claimed_at"] = now if raw_worker_id else None
-            updates["field_clock"]["worker_id"] = now
-            updates["field_clock"]["claimed_at"] = now
-
-        if patch.get("clear_worker"):
-            updates["worker_id"] = None
-            updates["claimed_at"] = None
-            updates["field_clock"]["worker_id"] = now
-            updates["field_clock"]["claimed_at"] = now
-
-        next_status = updates.get("status", task.status)
-        next_assignee = updates.get("assignee", task.assignee)
-        if next_status != TaskStatus.IN_PROGRESS or next_assignee != Actor.AI:
-            updates["worker_id"] = None
-            updates["claimed_at"] = None
-            updates["field_clock"]["worker_id"] = now
-            updates["field_clock"]["claimed_at"] = now
-
-        updated = task.model_copy(update=updates)
-        self._provider().upsert_task(updated)
-        self._send(200, {"ok": True, "task": updated.model_dump(by_alias=True)})
+        self._send(
+            200,
+            {
+                "ok": True,
+                "task": task.model_dump(),
+                "active_run": active_run.model_dump() if active_run else None,
+                "pending_check_in": (
+                    {
+                        "requested_at": task.check_in_requested_at,
+                        "requested_by": task.check_in_requested_by,
+                    }
+                    if task.check_in_requested_at
+                    else None
+                ),
+            },
+        )
 
     def do_DELETE(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -676,15 +616,11 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                 self._send(404, {"ok": False, "error": "Not found"})
                 return
 
-            deleted = self._provider().delete_task(
-                task_id,
-                updated_by=UpdatedBy.SYSTEM,
-            )
+            deleted = self._provider().delete_task(task_id, updated_by=UpdatedBy.HUMAN)
             if not deleted:
                 self._send(404, {"ok": False, "error": f"Task '{task_id}' not found"})
                 return
-
-            self._send(200, {"ok": True, "task": deleted.model_dump(by_alias=True)})
+            self._send(200, {"ok": True, "deleted": True, "task_id": task_id})
             return
 
         if path.startswith("/workspaces/"):
@@ -726,25 +662,20 @@ def make_server(
 
 
 def run_local_api_server(
+    host: str,
+    port: int,
+    uploads_dir: Path,
     provider: Optional[Provider] = None,
     provider_factory: Optional[Callable[[], Provider]] = None,
-    host: str = "127.0.0.1",
-    port: int = 8787,
-    uploads_dir: Optional[Path] = None,
 ) -> None:
-    target_uploads_dir = uploads_dir or Path(os.getenv("TM_LOCAL_UPLOAD_DIR", ".data/uploads"))
-    target_uploads_dir.mkdir(parents=True, exist_ok=True)
-
     server = make_server(
-        provider=provider,
-        provider_factory=provider_factory,
         host=host,
         port=port,
-        uploads_dir=target_uploads_dir,
+        uploads_dir=uploads_dir,
+        provider=provider,
+        provider_factory=provider_factory,
     )
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
-        pass
     finally:
         server.server_close()

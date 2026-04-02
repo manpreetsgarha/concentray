@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import typer
 
+from concentray_cli.commands.activity import activity_app
 from concentray_cli.commands.agent import agent_app
-from concentray_cli.commands.comment import comment_app
 from concentray_cli.commands.context import context_app
+from concentray_cli.commands.note import note_app
 from concentray_cli.commands.runtime import runtime_app
 from concentray_cli.commands.skill import skill_app
 from concentray_cli.commands.task import task_app
@@ -13,7 +14,8 @@ from concentray_cli.commands.workspace import workspace_app
 app = typer.Typer(help="Concentray CLI")
 
 app.add_typer(task_app, name="task")
-app.add_typer(comment_app, name="comment")
+app.add_typer(note_app, name="note")
+app.add_typer(activity_app, name="activity")
 app.add_typer(context_app, name="context")
 app.add_typer(skill_app, name="skill", hidden=True)
 app.add_typer(workspace_app, name="workspace", hidden=True)

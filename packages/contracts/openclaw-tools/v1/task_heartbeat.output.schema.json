@@ -1,11 +1,11 @@
 {
-  "$id": "task_claim_next.output.v2",
+  "$id": "task_heartbeat.output.v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "ok": { "type": "boolean" },
     "task": { "type": ["object", "null"] },
-    "active_run": { "type": ["object", "null"] },
+    "active_run": { "type": "object" },
     "pending_check_in": { "type": ["object", "null"] }
   },
   "required": ["ok", "task", "active_run", "pending_check_in"]

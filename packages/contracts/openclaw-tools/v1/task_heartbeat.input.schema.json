@@ -1,0 +1,11 @@
+{
+  "$id": "task_heartbeat.input.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "runtime": { "type": "string", "enum": ["openclaw", "claude", "codex"] },
+    "worker_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["task_id"]
+}

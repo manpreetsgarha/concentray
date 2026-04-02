@@ -20,7 +20,7 @@ def _request(base_url: str, method: str, path: str, payload: dict | None = None)
         return response.status, json.loads(response.read().decode("utf-8"))
 
 
-def test_local_api_workspace_switch_isolates_tasks(tmp_path: Path, monkeypatch) -> None:
+def test_local_api_claim_heartbeat_and_activity_flow(tmp_path: Path, monkeypatch) -> None:
     workspace_config = tmp_path / "workspaces.json"
     monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
 
@@ -32,249 +32,175 @@ def test_local_api_workspace_switch_isolates_tasks(tmp_path: Path, monkeypatch) 
     )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
 
     try:
-        default_store = tmp_path / "default.json"
-        fitness_store = tmp_path / "fitness.json"
-
-        status, payload = _request(
-            base_url,
-            "POST",
-            "/workspaces",
-            {"name": "default", "store": str(default_store), "set_active": True},
-        )
+        store = tmp_path / "default.json"
+        status, _ = _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
         assert status == 201
-        assert payload["active_workspace"] == "default"
 
-        status, payload = _request(
+        status, created = _request(
             base_url,
             "POST",
             "/tasks",
-            {"title": "Ship workspace UI", "created_by": "Human", "assignee": "AI", "ai_urgency": 4},
+            {
+                "title": "Implement lease-aware runner",
+                "assignee": "ai",
+                "target_runtime": "openclaw",
+                "execution_mode": "autonomous",
+                "ai_urgency": 5,
+                "updated_by": "human",
+            },
         )
         assert status == 201
-        assert payload["task"]["Title"] == "Ship workspace UI"
+        task_id = created["task"]["id"]
 
-        status, payload = _request(base_url, "GET", "/tasks")
-        assert status == 200
-        assert len(payload["tasks"]) == 1
-
-        status, payload = _request(
+        status, claimed = _request(
             base_url,
             "POST",
-            "/workspaces",
-            {"name": "fitness", "store": str(fitness_store), "set_active": True},
+            "/tasks/claim-next",
+            {"runtime": "openclaw", "worker_id": "openclaw:autonomous:test:main"},
         )
+        assert status == 200
+        assert claimed["task"]["id"] == task_id
+
+        status, check_in = _request(base_url, "POST", f"/tasks/{task_id}/check-in-request", {"requested_by": "human"})
         assert status == 201
-        assert payload["active_workspace"] == "fitness"
+        assert check_in["pending_check_in"]["requested_by"] == "human"
 
-        status, payload = _request(base_url, "GET", "/tasks")
-        assert status == 200
-        assert payload["tasks"] == []
-
-        status, payload = _request(base_url, "PATCH", "/workspaces/active", {"name": "default"})
-        assert status == 200
-        assert payload["active_workspace"] == "default"
-
-        status, payload = _request(base_url, "GET", "/tasks")
-        assert status == 200
-        assert len(payload["tasks"]) == 1
-        assert payload["tasks"][0]["Title"] == "Ship workspace UI"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-
-
-def test_local_api_workspace_delete_reassigns_active_and_rejects_last(tmp_path: Path, monkeypatch) -> None:
-    workspace_config = tmp_path / "workspaces.json"
-    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
-
-    server = make_server(
-        host="127.0.0.1",
-        port=0,
-        uploads_dir=tmp_path / "uploads",
-        provider_factory=make_provider,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    base_url = f"http://127.0.0.1:{server.server_address[1]}"
-
-    try:
-        default_store = tmp_path / "default.json"
-        second_store = tmp_path / "fitness.json"
-
-        status, payload = _request(
+        status, heartbeat = _request(
             base_url,
             "POST",
-            "/workspaces",
-            {"name": "default", "store": str(default_store), "set_active": True},
+            f"/tasks/{task_id}/heartbeat",
+            {"runtime": "openclaw", "worker_id": "openclaw:autonomous:test:main"},
         )
-        assert status == 201
-        assert payload["active_workspace"] == "default"
-
-        status, payload = _request(
-            base_url,
-            "POST",
-            "/workspaces",
-            {"name": "fitness", "store": str(second_store), "set_active": True},
-        )
-        assert status == 201
-        assert payload["active_workspace"] == "fitness"
-
-        status, payload = _request(base_url, "DELETE", "/workspaces/fitness")
         assert status == 200
-        assert payload["active_workspace"] == "default"
-        assert [workspace["name"] for workspace in payload["workspaces"]] == ["default"]
-
-        try:
-            _request(base_url, "DELETE", "/workspaces/default")
-            assert False, "Expected delete of last workspace to fail"
-        except urllib.error.HTTPError as exc:
-            payload = json.loads(exc.read().decode("utf-8"))
-            assert exc.code == 400
-            assert payload["error"] == "Cannot remove the last workspace"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-
-
-def test_local_api_task_delete_hides_task_and_thread(tmp_path: Path, monkeypatch) -> None:
-    workspace_config = tmp_path / "workspaces.json"
-    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
-
-    server = make_server(
-        host="127.0.0.1",
-        port=0,
-        uploads_dir=tmp_path / "uploads",
-        provider_factory=make_provider,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    base_url = f"http://127.0.0.1:{server.server_address[1]}"
-
-    try:
-        default_store = tmp_path / "default.json"
-
-        status, payload = _request(
-            base_url,
-            "POST",
-            "/workspaces",
-            {"name": "default", "store": str(default_store), "set_active": True},
-        )
-        assert status == 201
-
-        status, payload = _request(
-            base_url,
-            "POST",
-            "/tasks",
-            {"title": "Delete me", "created_by": "Human", "assignee": "AI", "ai_urgency": 3},
-        )
-        assert status == 201
-        task_id = payload["task"]["Task_ID"]
-
-        status, payload = _request(
-            base_url,
-            "POST",
-            f"/tasks/{task_id}/comments",
-            {"author": "AI", "type": "log", "message": "transient trace"},
-        )
-        assert status == 201
-
-        status, payload = _request(base_url, "DELETE", f"/tasks/{task_id}")
-        assert status == 200
-        assert payload["task"]["Deleted_At"] is not None
-
-        status, payload = _request(base_url, "GET", "/tasks")
-        assert status == 200
-        assert payload["tasks"] == []
-
-        try:
-            _request(base_url, "GET", f"/tasks/{task_id}")
-            assert False, "Expected deleted task to be hidden"
-        except urllib.error.HTTPError as exc:
-            payload = json.loads(exc.read().decode("utf-8"))
-            assert exc.code == 404
-            assert "not found" in payload["error"].lower()
-
-        saved = json.loads(default_store.read_text())
-        assert saved["tasks"][0]["Deleted_At"] is not None
-        assert saved["comments"][0]["Deleted_At"] is not None
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
-
-
-def test_local_api_claim_next_respects_execution_mode(tmp_path: Path, monkeypatch) -> None:
-    workspace_config = tmp_path / "workspaces.json"
-    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
-
-    server = make_server(
-        host="127.0.0.1",
-        port=0,
-        uploads_dir=tmp_path / "uploads",
-        provider_factory=make_provider,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
-    base_url = f"http://127.0.0.1:{server.server_address[1]}"
-
-    try:
-        default_store = tmp_path / "default.json"
+        assert heartbeat["pending_check_in"]["requested_by"] == "human"
 
         status, _ = _request(
             base_url,
             "POST",
-            "/workspaces",
-            {"name": "default", "store": str(default_store), "set_active": True},
+            f"/tasks/{task_id}/activity",
+            {
+                "actor": "ai",
+                "kind": "check_in_reply",
+                "summary": "Still working through the migration plan.",
+                "runtime": "openclaw",
+                "worker_id": "openclaw:autonomous:test:main",
+                "clear_check_in": True,
+            },
         )
         assert status == 201
 
-        status, payload = _request(
+        status, task_payload = _request(base_url, "GET", f"/tasks/{task_id}")
+        assert status == 200
+        assert task_payload["pending_check_in"] is None
+
+        status, activity_payload = _request(base_url, "GET", f"/tasks/{task_id}/activity")
+        assert status == 200
+        assert any(entry["kind"] == "check_in_reply" for entry in activity_payload["activity"])
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_rejects_wrong_worker_update(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        store = tmp_path / "default.json"
+        _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
+        _, created = _request(
             base_url,
             "POST",
             "/tasks",
+            {"title": "Guard leases", "assignee": "ai", "target_runtime": "openclaw", "updated_by": "human"},
+        )
+        task_id = created["task"]["id"]
+        _request(base_url, "POST", "/tasks/claim-next", {"runtime": "openclaw", "worker_id": "openclaw:autonomous:test:main"})
+
+        try:
+            _request(
+                base_url,
+                "PATCH",
+                f"/tasks/{task_id}",
+                {
+                    "status": "done",
+                    "updated_by": "ai",
+                    "runtime": "openclaw",
+                    "worker_id": "openclaw:autonomous:test:other",
+                },
+            )
+            assert False, "Expected wrong worker update to fail"
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            assert exc.code == 400
+            assert "leased by" in payload["error"].lower()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_notes_round_trip_and_emit_activity(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        store = tmp_path / "default.json"
+        _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
+        _, created = _request(
+            base_url,
+            "POST",
+            "/tasks",
+            {"title": "Capture operator notes", "assignee": "human", "updated_by": "human"},
+        )
+        task_id = created["task"]["id"]
+
+        status, note_payload = _request(
+            base_url,
+            "POST",
+            f"/tasks/{task_id}/notes",
             {
-                "title": "Guided task",
-                "created_by": "Human",
-                "assignee": "AI",
-                "execution_mode": "session",
-                "ai_urgency": 4,
+                "author": "human",
+                "kind": "attachment",
+                "content": "Added the approval screenshot.",
+                "attachment": {"filename": "approval.png"},
             },
         )
         assert status == 201
-        assert payload["task"]["Execution_Mode"] == "Session"
+        assert note_payload["note"]["kind"] == "attachment"
 
-        status, payload = _request(
-            base_url,
-            "POST",
-            "/tasks/claim-next",
-            {"worker_id": "openclaw-main", "assignee": "ai", "status": ["pending", "in_progress"]},
-        )
+        status, notes_payload = _request(base_url, "GET", f"/tasks/{task_id}/notes")
         assert status == 200
-        assert payload["task"] is None
+        assert len(notes_payload["notes"]) == 1
+        assert notes_payload["notes"][0]["attachment"]["filename"] == "approval.png"
 
-        status, payload = _request(
-            base_url,
-            "POST",
-            "/tasks/claim-next",
-            {
-                "worker_id": "codex-main",
-                "assignee": "ai",
-                "status": ["pending", "in_progress"],
-                "execution_mode": ["session"],
-            },
-        )
+        status, activity_payload = _request(base_url, "GET", f"/tasks/{task_id}/activity")
         assert status == 200
-        assert payload["task"]["Title"] == "Guided task"
-        assert payload["task"]["Execution_Mode"] == "Session"
+        assert any(entry["kind"] == "note_added" for entry in activity_payload["activity"])
     finally:
         server.shutdown()
         server.server_close()

@@ -5,7 +5,7 @@ Concentray is a local-first task coordination layer for humans and terminal AI a
 It gives you a shared system for:
 - queued work
 - structured task context
-- progress logs and comments
+- human notes and machine activity
 - blocker requests that a human can resolve later
 - a web UI for monitoring and unblocking
 - a CLI that agents can call directly
@@ -16,7 +16,7 @@ The important distinction is:
 
 ## Current scope
 
-Concentray v1 is currently a single-operator system.
+Concentray v2 is currently a single-operator system.
 
 It is built for one person coordinating work with one or more AI agents through a shared local runtime.
 
@@ -52,7 +52,7 @@ Bad fits:
 
 ## How it works
 
-Concentray v1 is intentionally local-first.
+Concentray v2 is intentionally local-first.
 
 Source of truth:
 - local JSON task store
@@ -96,10 +96,10 @@ Concentray is intentionally split so each layer has a narrow job:
 
 Runtime flow:
 
-1. The web UI or CLI issues task/comment/workspace actions.
+1. The web UI or CLI issues task, note, activity, and workspace actions.
 2. The CLI runtime resolves the active provider and local store.
 3. Shared contracts define the payload shape across UI, CLI, and agent adapters.
-4. The local JSON store remains the source of truth for v1.
+4. The local JSON store remains the source of truth for v2.
 
 ## Quick start
 
@@ -190,8 +190,8 @@ The UI lets you:
 - delete tasks with confirmation
 - mark tasks done
 - inspect task details
-- keep operator-facing comments separate from verbose AI logs
-- add comments and attachments
+- keep operator-facing notes separate from verbose AI activity
+- add notes and attachments
 - respond to blocker requests
 
 ## The simplest way to use it
@@ -204,10 +204,10 @@ Human:
 
 Agent:
 ```bash
-./scripts/concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --execution-mode autonomous --json
+./scripts/concentray task claim-next --runtime codex --worker-id codex:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
-That is the core v1 loop.
+That is the core v2 loop.
 
 ## Why it is useful with agents
 
@@ -279,25 +279,25 @@ Start only the local API:
 Claim next task for AI:
 
 ```bash
-./scripts/concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --execution-mode autonomous --json
+./scripts/concentray task claim-next --runtime codex --worker-id codex:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
 Inspect next task for AI without claiming it:
 
 ```bash
-./scripts/concentray task get-next --assignee ai --status pending,in_progress --execution-mode session,autonomous --json
+./scripts/concentray task get-next --runtime codex --worker-id codex:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
-Get a task with comments:
+Get a task with notes, activity, and active run state:
 
 ```bash
-./scripts/concentray task get <task_id> --with-comments --json
+./scripts/concentray task get <task_id> --json
 ```
 
 Update a task:
 
 ```bash
-./scripts/concentray task update <task_id> --status blocked --assignee human --urgency 5 --json
+./scripts/concentray task update <task_id> --status blocked --assignee human --ai-urgency 5 --runtime codex --worker-id codex:session:$(hostname -s):main --json
 ```
 
 Delete a task:
@@ -306,16 +306,22 @@ Delete a task:
 ./scripts/concentray task delete <task_id> --json
 ```
 
-Add a comment:
+Add machine activity:
 
 ```bash
-./scripts/concentray comment add <task_id> --message "Investigating parser failure" --type log --metadata '{"step":"parse","payload":{"file":"report.csv","attempt":2}}' --json
+./scripts/concentray activity add <task_id> --kind tool_call --summary "Investigating parser failure" --payload '{"step":"parse","file":"report.csv","attempt":2}' --runtime codex --worker-id codex:session:$(hostname -s):main --json
 ```
 
-Comment model:
-- `message`, `decision`, and `attachment` are the skimmable operator thread
-- `log` is for detailed autonomous traces, tool payloads, and AI ping-pong
-- the task drawer exposes those in separate `Comments` and `Logs` views
+Add a human note:
+
+```bash
+./scripts/concentray note add <task_id> --content "Waiting on the final screenshot before release." --kind note --json
+```
+
+Task timeline model:
+- `notes` are human-facing updates and attachments
+- `activity` is the append-only machine timeline for tool traces, lifecycle events, check-ins, and recovery
+- the task drawer exposes those in separate `Notes` and `Activity` views
 
 Export task context:
 
@@ -354,10 +360,10 @@ Internal allowlisted skill execution:
 Typical agent loop:
 
 1. claim next AI task with a stable `worker_id`
-2. read task and comments
+2. read task, notes, activity, and active run state
 3. export structured context
 4. do the work
-5. log progress
+5. heartbeat during long work and append activity
 6. if blocked, update task with a focused `input_request`
 7. human responds in the UI
 8. agent resumes
@@ -421,7 +427,7 @@ Current web UI supports:
 - task list as the primary view
 - task detail drawer
 - status updates including done / reopen
-- comments and attachments
+- notes, activity, and attachments
 - blocker resolution UI
 
 It is designed for the human operator side of the loop.
@@ -434,7 +440,7 @@ Shared local API mode supports:
 - text (`.txt`, `text/plain`)
 - csv (`.csv`, `text/csv`)
 
-This means tasks and comments can carry richer artifacts, not just text.
+This means tasks and notes can carry richer artifacts, not just text.
 
 ## Agent installs
 
@@ -524,7 +530,7 @@ Best fit:
 - typed tool wrappers over the same CLI
 - fallback skill only when plugin mode is unavailable
 - use `task_claim_next` for safe pickup
-- use `comment_add(type=\"log\", metadata=...)` for verbose trace data; there is no separate log tool
+- use `activity_add(payload=...)` for verbose trace data; human notes stay in `note add`
 
 This keeps one consistent core:
 - shared CLI contract

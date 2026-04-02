@@ -43,7 +43,7 @@ def resolve_local_store_path(store_override: Optional[str] = None) -> Path:
 
     payload = load_workspace_config()
     selected_workspace = get_selected_workspace(payload)
-    if selected_workspace and str(selected_workspace.get("provider", "")).lower() == "local_json":
+    if selected_workspace:
         selected_store = str(selected_workspace.get("store", "")).strip()
         if selected_store:
             return canonical_store_path(Path(selected_store))

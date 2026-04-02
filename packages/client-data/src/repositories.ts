@@ -1,4 +1,4 @@
-import type { Comment, Task } from "./types.js";
+import type { Activity, Note, Run, Task } from "./types.js";
 import type { InMemoryStore } from "./inMemoryStore.js";
 
 export interface TaskRepository {
@@ -7,9 +7,19 @@ export interface TaskRepository {
   upsert(task: Task): Promise<Task>;
 }
 
-export interface CommentRepository {
-  listByTask(taskId: string): Promise<Comment[]>;
-  create(comment: Comment): Promise<Comment>;
+export interface NoteRepository {
+  listByTask(taskId: string): Promise<Note[]>;
+  create(note: Note): Promise<Note>;
+}
+
+export interface RunRepository {
+  listByTask(taskId: string): Promise<Run[]>;
+  upsert(run: Run): Promise<Run>;
+}
+
+export interface ActivityRepository {
+  listByTask(taskId: string): Promise<Activity[]>;
+  create(entry: Activity): Promise<Activity>;
 }
 
 export class LocalTaskRepository implements TaskRepository {
@@ -38,15 +48,41 @@ export class LocalTaskRepository implements TaskRepository {
   }
 }
 
-export class LocalCommentRepository implements CommentRepository {
+export class LocalNoteRepository implements NoteRepository {
   constructor(private readonly store: InMemoryStore) {}
 
-  async listByTask(taskId: string): Promise<Comment[]> {
-    return this.store.getComments(taskId);
+  async listByTask(taskId: string): Promise<Note[]> {
+    return this.store.getNotes(taskId);
   }
 
-  async create(comment: Comment): Promise<Comment> {
-    this.store.upsertComment(comment);
-    return comment;
+  async create(note: Note): Promise<Note> {
+    this.store.upsertNote(note);
+    return note;
+  }
+}
+
+export class LocalRunRepository implements RunRepository {
+  constructor(private readonly store: InMemoryStore) {}
+
+  async listByTask(taskId: string): Promise<Run[]> {
+    return this.store.getRuns(taskId);
+  }
+
+  async upsert(run: Run): Promise<Run> {
+    this.store.upsertRun(run);
+    return run;
+  }
+}
+
+export class LocalActivityRepository implements ActivityRepository {
+  constructor(private readonly store: InMemoryStore) {}
+
+  async listByTask(taskId: string): Promise<Activity[]> {
+    return this.store.getActivity(taskId);
+  }
+
+  async create(entry: Activity): Promise<Activity> {
+    this.store.upsertActivity(entry);
+    return entry;
   }
 }

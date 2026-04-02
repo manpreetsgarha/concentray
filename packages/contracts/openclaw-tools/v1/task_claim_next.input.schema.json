@@ -1,20 +1,17 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "task_claim_next.input.v1",
+  "$id": "task_claim_next.input.v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "runtime": { "type": "string", "enum": ["openclaw", "claude", "codex"] },
     "worker_id": { "type": "string", "minLength": 1 },
-    "assignee": { "type": "string", "enum": ["ai", "human"] },
     "status": {
       "type": "array",
-      "items": { "type": "string", "enum": ["pending", "in_progress", "blocked", "done"] },
-      "minItems": 1
+      "items": { "type": "string", "enum": ["pending", "in_progress", "blocked", "done"] }
     },
     "execution_mode": {
       "type": "array",
-      "items": { "type": "string", "enum": ["autonomous", "session"] },
-      "minItems": 1
+      "items": { "type": "string", "enum": ["autonomous", "session"] }
     },
     "lease_seconds": { "type": "integer", "minimum": 1 }
   }

@@ -79,7 +79,7 @@ def default_worker_id(prefix: str = "openclaw") -> str:
     if configured and configured.strip():
         return configured.strip()
     hostname = socket.gethostname().split(".")[0] or "host"
-    return f"{prefix}-{hostname}"
+    return f"{prefix}:autonomous:{hostname}:main"
 
 
 def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
@@ -89,8 +89,8 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
         args = [
             "task",
             "get-next",
-            "--assignee",
-            payload.get("assignee", "ai"),
+            "--runtime",
+            payload.get("runtime", "openclaw"),
             "--status",
             ",".join(statuses),
             "--execution-mode",
@@ -110,10 +110,10 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
         args = [
             "task",
             "claim-next",
+            "--runtime",
+            payload.get("runtime", "openclaw"),
             "--worker-id",
             str(worker_id),
-            "--assignee",
-            payload.get("assignee", "ai"),
             "--status",
             ",".join(statuses),
             "--execution-mode",
@@ -125,11 +125,7 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
         return args
 
     if tool == "task_get":
-        args = ["task", "get", payload["task_id"]]
-        if payload.get("with_comments", True):
-            args.extend(["--with-comments"])
-        args.append("--json")
-        return args
+        return ["task", "get", payload["task_id"], "--json"]
 
     if tool == "task_update":
         args = ["task", "update", payload["task_id"]]
@@ -137,40 +133,72 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
             args.extend(["--status", payload["status"]])
         if payload.get("assignee"):
             args.extend(["--assignee", payload["assignee"]])
+        if "target_runtime" in payload:
+            if payload["target_runtime"] is None:
+                args.append("--clear-target-runtime")
+            else:
+                args.extend(["--target-runtime", payload["target_runtime"]])
         if payload.get("execution_mode"):
             args.extend(["--execution-mode", payload["execution_mode"]])
-        if payload.get("urgency") is not None:
-            args.extend(["--urgency", str(payload["urgency"])])
-        if "worker_id" in payload and payload["worker_id"] is not None:
-            args.extend(["--worker-id", str(payload["worker_id"])])
-        if payload.get("clear_worker"):
-            args.append("--clear-worker")
+        if payload.get("ai_urgency") is not None:
+            args.extend(["--ai-urgency", str(payload["ai_urgency"])])
+        if "context_link" in payload:
+            args.extend(["--context-link", payload["context_link"] or ""])
+        runtime = payload.get("runtime", "openclaw")
+        worker_id = payload.get("worker_id") or default_worker_id()
+        args.extend(["--runtime", runtime, "--worker-id", str(worker_id)])
         if "input_request" in payload:
             if payload["input_request"] is None:
                 args.extend(["--input-request", "null"])
             else:
                 args.extend(["--input-request", json.dumps(payload["input_request"])])
+        if "input_response" in payload:
+            if payload["input_response"] is None:
+                args.extend(["--input-response", "null"])
+            else:
+                args.extend(["--input-response", json.dumps(payload["input_response"])])
+        if payload.get("clear_check_in"):
+            args.append("--clear-check-in")
+        if payload.get("allow_override"):
+            args.append("--allow-override")
         args.append("--json")
         return args
 
-    if tool == "comment_add":
+    if tool == "task_heartbeat":
         args = [
-            "comment",
-            "add",
+            "task",
+            "heartbeat",
             payload["task_id"],
-            "--message",
-            payload["message"],
+            "--runtime",
+            payload.get("runtime", "openclaw"),
+            "--worker-id",
+            str(payload.get("worker_id") or default_worker_id()),
             "--json",
         ]
-        if payload.get("type"):
-            args.extend(["--type", payload["type"]])
-        if payload.get("attachment"):
-            args.extend(["--attachment", payload["attachment"]])
-        if "metadata" in payload:
-            if payload["metadata"] is None:
-                args.extend(["--metadata", "null"])
+        return args
+
+    if tool == "activity_add":
+        args = [
+            "activity",
+            "add",
+            payload["task_id"],
+            "--kind",
+            payload["kind"],
+            "--summary",
+            payload["summary"],
+            "--runtime",
+            payload.get("runtime", "openclaw"),
+            "--worker-id",
+            str(payload.get("worker_id") or default_worker_id()),
+            "--json",
+        ]
+        if "payload" in payload:
+            if payload["payload"] is None:
+                args.extend(["--payload", "null"])
             else:
-                args.extend(["--metadata", json.dumps(payload["metadata"])])
+                args.extend(["--payload", json.dumps(payload["payload"])])
+        if payload.get("clear_check_in"):
+            args.append("--clear-check-in")
         return args
 
     if tool == "context_export":

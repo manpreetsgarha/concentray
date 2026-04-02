@@ -14,7 +14,7 @@ const toolDefinitions = [
   {
     id: "task_get_next",
     title: "Task Get Next",
-    description: "Inspect the next eligible Concentray task for an assignee.",
+    description: "Inspect the next eligible Concentray task for OpenClaw.",
     schemaFile: "task_get_next.input.schema.json",
   },
   {
@@ -26,20 +26,26 @@ const toolDefinitions = [
   {
     id: "task_get",
     title: "Task Get",
-    description: "Fetch a Concentray task and optionally include its thread.",
+    description: "Fetch a Concentray task with its notes, activity, and active run.",
     schemaFile: "task_get.input.schema.json",
   },
   {
     id: "task_update",
     title: "Task Update",
-    description: "Update a Concentray task status, assignee, claim, or blocker payload.",
+    description: "Update a Concentray task and manage lifecycle transitions.",
     schemaFile: "task_update.input.schema.json",
   },
   {
-    id: "comment_add",
-    title: "Comment Add",
-    description: "Add a comment, decision, attachment, or structured log to a Concentray task.",
-    schemaFile: "comment_add.input.schema.json",
+    id: "task_heartbeat",
+    title: "Task Heartbeat",
+    description: "Refresh the lease on the currently claimed Concentray task.",
+    schemaFile: "task_heartbeat.input.schema.json",
+  },
+  {
+    id: "activity_add",
+    title: "Activity Add",
+    description: "Add machine activity to a Concentray task timeline.",
+    schemaFile: "activity_add.input.schema.json",
   },
   {
     id: "context_export",

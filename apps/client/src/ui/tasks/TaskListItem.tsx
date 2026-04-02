@@ -2,7 +2,7 @@ import Feather from "@expo/vector-icons/Feather";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { formatTimestamp } from "../../lib/formatters";
+import { formatTimestamp, humanAssignee, humanExecutionMode, humanRuntime, humanStatus } from "../../lib/formatters";
 import type { Task } from "../../types";
 import { FONT_MONO, FONT_SANS } from "../theme";
 
@@ -15,20 +15,20 @@ interface TaskListItemProps {
 }
 
 function statusBarStyle(status: Task["status"]) {
-  if (status === "Blocked") {
+  if (status === "blocked") {
     return styles.statusBarBlocked;
   }
-  if (status === "In Progress") {
+  if (status === "in_progress") {
     return styles.statusBarInProgress;
   }
-  if (status === "Done") {
+  if (status === "done") {
     return styles.statusBarDone;
   }
   return styles.statusBarPending;
 }
 
 export function TaskListItem({ task, selected, busy = false, onPress, onToggleDone }: TaskListItemProps) {
-  const strike = task.status === "Done";
+  const strike = task.status === "done";
 
   return (
     <View style={[styles.taskCard, selected ? styles.taskCardSelected : null]}>
@@ -45,15 +45,15 @@ export function TaskListItem({ task, selected, busy = false, onPress, onToggleDo
           <Text style={[styles.taskCardTitle, strike ? styles.taskCardTitleDone : null]} numberOfLines={2}>
             {task.title}
           </Text>
-          {task.inputRequest ? <Text style={styles.taskBlockedHint}>Blocked</Text> : null}
+          {task.checkInRequestedAt ? <Text style={styles.taskBlockedHint}>Check-In</Text> : null}
         </View>
         <View style={styles.taskMetaRow}>
           <Text style={styles.taskCardMeta}>
-            {task.assignee} · {task.executionMode} · {task.status}
+            {humanAssignee(task.assignee)} · {humanRuntime(task.targetRuntime)} · {humanExecutionMode(task.executionMode)} · {humanStatus(task.status)}
           </Text>
           <Text style={styles.taskTimestamp}>{formatTimestamp(task.updatedAt)}</Text>
         </View>
-        <Text style={styles.taskUrgency}>Urgency {task.aiUrgency ?? 3}/5</Text>
+        <Text style={styles.taskUrgency}>Urgency {task.aiUrgency}/5</Text>
       </Pressable>
     </View>
   );

@@ -11,19 +11,19 @@ Use the repo-local wrapper from the repository root:
 Claim next AI task for a stable worker id:
 
 ```bash
-./scripts/concentray task claim-next --worker-id codex-$(hostname -s) --assignee ai --status pending,in_progress --json
+./scripts/concentray task claim-next --runtime codex --worker-id codex:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
 Inspect next AI task without claiming it:
 
 ```bash
-./scripts/concentray task get-next --assignee ai --status pending,in_progress --json
+./scripts/concentray task get-next --runtime codex --worker-id codex:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
-Get task with comments:
+Get task with notes and activity:
 
 ```bash
-./scripts/concentray task get <task_id> --with-comments --json
+./scripts/concentray task get <task_id> --json
 ```
 
 Export structured context:
@@ -32,22 +32,22 @@ Export structured context:
 ./scripts/concentray context export <task_id> --format json --json
 ```
 
-Add progress comment:
+Add progress activity:
 
 ```bash
-./scripts/concentray comment add <task_id> --message "Implemented parser changes" --type log --metadata '{"step":"parser","payload":{"files_changed":2}}' --json
+./scripts/concentray activity add <task_id> --kind tool_call --summary "Implemented parser changes" --payload '{"step":"parser","files_changed":2}' --runtime codex --worker-id codex:session:$(hostname -s):main --json
 ```
 
 Mark done:
 
 ```bash
-./scripts/concentray task update <task_id> --status done --assignee human --json
+./scripts/concentray task update <task_id> --status done --assignee human --runtime codex --worker-id codex:session:$(hostname -s):main --json
 ```
 
-Refresh or set the active worker claim explicitly:
+Refresh the active worker lease explicitly:
 
 ```bash
-./scripts/concentray task update <task_id> --worker-id codex-$(hostname -s) --json
+./scripts/concentray task heartbeat <task_id> --runtime codex --worker-id codex:session:$(hostname -s):main --json
 ```
 
 ## Blocker examples
@@ -58,7 +58,9 @@ Choice request:
 ./scripts/concentray task update <task_id> \
   --status blocked \
   --assignee human \
-  --urgency 5 \
+  --ai-urgency 5 \
+  --runtime codex \
+  --worker-id codex:session:$(hostname -s):main \
   --input-request '{"schema_version":"1.0","type":"choice","options":["main","staging"]}' \
   --json
 ```
@@ -69,6 +71,8 @@ Approve/reject request:
 ./scripts/concentray task update <task_id> \
   --status blocked \
   --assignee human \
+  --runtime codex \
+  --worker-id codex:session:$(hostname -s):main \
   --input-request '{"schema_version":"1.0","type":"approve_reject","prompt":"Ship this version?"}' \
   --json
 ```
@@ -79,6 +83,8 @@ Text input request:
 ./scripts/concentray task update <task_id> \
   --status blocked \
   --assignee human \
+  --runtime codex \
+  --worker-id codex:session:$(hostname -s):main \
   --input-request '{"schema_version":"1.0","type":"text_input","prompt":"Provide the exact company tagline."}' \
   --json
 ```
@@ -89,6 +95,8 @@ File or photo request:
 ./scripts/concentray task update <task_id> \
   --status blocked \
   --assignee human \
+  --runtime codex \
+  --worker-id codex:session:$(hostname -s):main \
   --input-request '{"schema_version":"1.0","type":"file_or_photo","prompt":"Upload the receipt image."}' \
   --json
 ```
@@ -98,7 +106,7 @@ File or photo request:
 - `task update` supports `pending`, `in_progress`, `blocked`, `done`
 - `assignee` supports `ai`, `human`
 - prefer `task claim-next` over `task get-next` when starting work
-- `worker_id` + `claimed_at` prevent duplicate pickup across agent runtimes
-- use `log` comments for verbose autonomous traces and raw payloads
-- keep `message` / `decision` / `attachment` comments operator-facing
-- prefer comments for progress and `task update` for lifecycle changes
+- `worker_id` + the active run lease prevent duplicate pickup across agent runtimes
+- use `activity add` for verbose autonomous traces and raw payloads
+- keep `note add` operator-facing
+- prefer activity for progress and `task update` for lifecycle changes

@@ -29,20 +29,11 @@ def make_provider() -> Provider:
     workspace_config = load_workspace_config()
     selected_workspace = get_selected_workspace(workspace_config)
 
-    provider_name = os.getenv("TM_PROVIDER", "").strip().lower()
-    if not provider_name and selected_workspace:
-        provider_name = str(selected_workspace.get("provider", "")).strip().lower()
-    if not provider_name:
-        provider_name = "local_json"
-
-    if provider_name == "local_json":
-        store = os.getenv("TM_LOCAL_STORE", "").strip()
-        if not store and selected_workspace and str(selected_workspace.get("provider", "")).lower() == "local_json":
-            store = str(selected_workspace.get("store", "")).strip()
-        if not store:
-            store = ".data/store.json"
-        if os.getenv("TM_LOCAL_STORE", "").strip():
-            return LocalJsonProvider(Path(store).expanduser())
-        return LocalJsonProvider(resolve_selected_store(store))
-
-    raise ValueError(f"Unsupported TM_PROVIDER: {provider_name}")
+    store = os.getenv("TM_LOCAL_STORE", "").strip()
+    if not store and selected_workspace:
+        store = str(selected_workspace.get("store", "")).strip()
+    if not store:
+        store = ".data/store.json"
+    if os.getenv("TM_LOCAL_STORE", "").strip():
+        return LocalJsonProvider(Path(store).expanduser())
+    return LocalJsonProvider(resolve_selected_store(store))

@@ -1,11 +1,12 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "task_get_next.output.v1",
+  "$id": "task_get_next.output.v2",
   "type": "object",
+  "additionalProperties": false,
   "properties": {
     "ok": { "type": "boolean" },
-    "task": { "type": ["object", "null"] }
+    "task": { "type": ["object", "null"] },
+    "active_run": { "type": ["object", "null"] },
+    "pending_check_in": { "type": ["object", "null"] }
   },
-  "required": ["ok", "task"],
-  "additionalProperties": true
+  "required": ["ok", "task", "active_run", "pending_check_in"]
 }

@@ -49,7 +49,6 @@ def init_workspace(
     payload = load_workspace_config()
     workspaces = payload.get("workspaces") or {}
     workspaces[workspace] = {
-        "provider": "local_json",
         "store": str(store_path),
     }
     payload["workspaces"] = workspaces
@@ -59,7 +58,6 @@ def init_workspace(
     emit(
         {
             "ok": True,
-            "provider": "local_json",
             "store": str(store_path),
             "workspace": workspace,
             "active_workspace": payload.get("active_workspace"),

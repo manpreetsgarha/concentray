@@ -1,12 +1,14 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "task_get.output.v1",
+  "$id": "task_get.output.v2",
   "type": "object",
+  "additionalProperties": false,
   "properties": {
     "ok": { "type": "boolean" },
     "task": { "type": ["object", "null"] },
-    "comments": { "type": "array", "items": { "type": "object" } }
+    "active_run": { "type": ["object", "null"] },
+    "notes": { "type": "array", "items": { "type": "object" } },
+    "activity": { "type": "array", "items": { "type": "object" } },
+    "pending_check_in": { "type": ["object", "null"] }
   },
-  "required": ["ok", "task", "comments"],
-  "additionalProperties": true
+  "required": ["ok", "task", "active_run", "notes", "activity", "pending_check_in"]
 }

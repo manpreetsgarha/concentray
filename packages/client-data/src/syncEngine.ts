@@ -1,4 +1,4 @@
-import { mergeTaskFieldLevel } from "./conflict.js";
+import { mergeTaskByTimestamp } from "./conflict.js";
 import type { InMemoryStore } from "./inMemoryStore.js";
 import type { SyncTransport, Task } from "./types.js";
 
@@ -18,12 +18,20 @@ export class SyncEngine {
         this.store.upsertTask(remoteTask);
         continue;
       }
-      const merged = mergeTaskFieldLevel(localTask, remoteTask);
+      const merged = mergeTaskByTimestamp(localTask, remoteTask);
       this.store.upsertTask(merged);
     }
 
-    for (const comment of delta.comments) {
-      this.store.upsertComment(comment);
+    for (const note of delta.notes) {
+      this.store.upsertNote(note);
+    }
+
+    for (const run of delta.runs) {
+      this.store.upsertRun(run);
+    }
+
+    for (const entry of delta.activity) {
+      this.store.upsertActivity(entry);
     }
 
     this.store.setCursor(delta.cursor);
@@ -46,25 +54,15 @@ export class SyncEngine {
 
   static patchTask(
     task: Task,
-    patch: Partial<Omit<Task, "id" | "createdAt" | "createdBy">>,
+    patch: Partial<Omit<Task, "id" | "createdAt">>,
     updatedBy: Task["updatedBy"],
     at: string
   ): Task {
-    const next = {
+    return {
       ...task,
       ...patch,
       updatedAt: at,
-      updatedBy,
-      version: task.version + 1,
-      fieldClock: { ...task.fieldClock }
+      updatedBy
     };
-
-    for (const [key, value] of Object.entries(patch)) {
-      if (typeof value !== "undefined") {
-        next.fieldClock[key] = at;
-      }
-    }
-
-    return next;
   }
 }

@@ -1,17 +1,21 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "task_update.input.v1",
+  "$id": "task_update.input.v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "task_id": { "type": "string", "minLength": 1 },
     "status": { "type": "string", "enum": ["pending", "in_progress", "blocked", "done"] },
     "assignee": { "type": "string", "enum": ["ai", "human"] },
+    "target_runtime": { "type": ["string", "null"], "enum": ["openclaw", "claude", "codex", null] },
     "execution_mode": { "type": "string", "enum": ["autonomous", "session"] },
-    "urgency": { "type": "integer", "minimum": 1, "maximum": 5 },
-    "worker_id": { "type": ["string", "null"], "minLength": 1 },
-    "clear_worker": { "type": "boolean" },
-    "input_request": { "type": ["object", "null"] }
+    "ai_urgency": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "context_link": { "type": ["string", "null"] },
+    "input_request": { "type": ["object", "null"] },
+    "input_response": { "type": ["object", "null"] },
+    "clear_check_in": { "type": "boolean" },
+    "allow_override": { "type": "boolean" },
+    "runtime": { "type": "string", "enum": ["openclaw", "claude", "codex"] },
+    "worker_id": { "type": "string", "minLength": 1 }
   },
   "required": ["task_id"]
 }

@@ -18,11 +18,7 @@ interface WorkspaceCardProps {
 
 export function WorkspaceCard(props: WorkspaceCardProps) {
   const { workspace, isSelected, collapsed = false, canDelete = false, busy = false, onPress, onDelete } = props;
-  const summary = isSelected
-    ? "Current lane"
-    : workspace.provider === "local_json"
-      ? "Local workspace"
-      : "Workspace";
+  const summary = isSelected ? "Current lane" : workspace.store ? "Local workspace" : "Workspace";
   const accent = workspaceAccent(workspace.name);
 
   return (

@@ -1,37 +1,59 @@
-import type { Comment, PendingOp, Task } from "./types.js";
+import type { Activity, Note, PendingOp, Run, Task } from "./types.js";
 
 export class InMemoryStore {
   private tasks = new Map<string, Task>();
-  private comments = new Map<string, Comment>();
+  private notes = new Map<string, Note>();
+  private runs = new Map<string, Run>();
+  private activity = new Map<string, Activity>();
   private pending: PendingOp[] = [];
   private cursor: string | undefined;
 
   getTasks(): Task[] {
-    return [...this.tasks.values()].filter((task) => !task.deletedAt);
+    return [...this.tasks.values()];
   }
 
   getTask(id: string): Task | undefined {
-    const task = this.tasks.get(id);
-    if (task?.deletedAt) {
-      return undefined;
-    }
-    return task;
+    return this.tasks.get(id);
   }
 
   upsertTask(task: Task): void {
     this.tasks.set(task.id, task);
   }
 
-  getComments(taskId?: string): Comment[] {
-    const rows = [...this.comments.values()].filter((comment) => !comment.deletedAt);
+  getNotes(taskId?: string): Note[] {
+    const rows = [...this.notes.values()];
     if (!taskId) {
       return rows;
     }
-    return rows.filter((comment) => comment.taskId === taskId);
+    return rows.filter((note) => note.taskId === taskId);
   }
 
-  upsertComment(comment: Comment): void {
-    this.comments.set(comment.id, comment);
+  upsertNote(note: Note): void {
+    this.notes.set(note.id, note);
+  }
+
+  getRuns(taskId?: string): Run[] {
+    const rows = [...this.runs.values()];
+    if (!taskId) {
+      return rows;
+    }
+    return rows.filter((run) => run.taskId === taskId);
+  }
+
+  upsertRun(run: Run): void {
+    this.runs.set(run.id, run);
+  }
+
+  getActivity(taskId?: string): Activity[] {
+    const rows = [...this.activity.values()];
+    if (!taskId) {
+      return rows;
+    }
+    return rows.filter((entry) => entry.taskId === taskId);
+  }
+
+  upsertActivity(entry: Activity): void {
+    this.activity.set(entry.id, entry);
   }
 
   enqueue(op: PendingOp): void {

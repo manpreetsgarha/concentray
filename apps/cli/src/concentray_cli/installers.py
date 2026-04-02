@@ -55,10 +55,10 @@ Treat Concentray as the source of truth for task state.
 Shared runtime:
 - wrapper: `{wrapper_command}`
 - store: `{store_path}`
-- use a stable worker id for this session, for example `claude-$(hostname -s)`
+- use a stable worker id for this session, for example `claude:session:$(hostname -s):main`
 
 When no specific task id is provided:
-1. Run `{wrapper_command} task claim-next --worker-id claude-$(hostname -s) --assignee ai --status pending,in_progress --json`
+1. Run `{wrapper_command} task claim-next --runtime claude --worker-id claude:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json`
 2. If no task is available, say so briefly and stop.
 3. Otherwise follow the preloaded `concentray-task-operator` skill.
 """
@@ -74,15 +74,15 @@ Use the `concentray-task-operator` skill and treat Concentray as the source of t
 
 Start by running:
 
-`{wrapper_command} task claim-next --worker-id claude-$(hostname -s) --assignee ai --status pending,in_progress --json`
+`{wrapper_command} task claim-next --runtime claude --worker-id claude:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json`
 
 If no task exists, say so briefly and stop.
 
 If a task exists:
-1. Read it with `task get --with-comments`
+1. Read it with `task get`
 2. Export structured context with `context export`
 3. Perform the work
-4. Post progress with `comment add`
+4. Post progress with `activity add`
 5. Update status with `task update`
 
 If `$ARGUMENTS` is provided, treat it as extra focus guidance, not as a replacement for task context.

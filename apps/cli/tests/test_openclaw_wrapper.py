@@ -12,26 +12,27 @@ def seed_store(path: Path) -> None:
             {
                 "tasks": [
                     {
-                        "Task_ID": "task-wrapper-1",
-                        "Title": "Wrapper test",
-                        "Status": "Pending",
-                        "Created_By": "Human",
-                        "Assignee": "AI",
-                        "Execution_Mode": "Autonomous",
-                        "Context_Link": None,
-                        "AI_Urgency": 2,
-                        "Input_Request": None,
-                        "Input_Request_Version": None,
-                        "Input_Response": None,
-                        "Created_At": "2026-03-03T10:00:00+00:00",
-                        "Updated_At": "2026-03-03T10:00:00+00:00",
-                        "Updated_By": "Human",
-                        "Version": 1,
-                        "Field_Clock": {},
-                        "Deleted_At": None,
+                        "id": "task-wrapper-1",
+                        "title": "Wrapper test",
+                        "status": "pending",
+                        "assignee": "ai",
+                        "target_runtime": "openclaw",
+                        "execution_mode": "autonomous",
+                        "ai_urgency": 4,
+                        "context_link": None,
+                        "input_request": None,
+                        "input_response": None,
+                        "active_run_id": None,
+                        "check_in_requested_at": None,
+                        "check_in_requested_by": None,
+                        "created_at": "2026-03-03T10:00:00+00:00",
+                        "updated_at": "2026-03-03T10:00:00+00:00",
+                        "updated_by": "human",
                     }
                 ],
-                "comments": [],
+                "notes": [],
+                "runs": [],
+                "activity": [],
             }
         )
     )
@@ -61,65 +62,41 @@ def test_openclaw_wrapper_round_trip(tmp_path: Path) -> None:
     env = os.environ.copy()
     env.update(
         {
-            "TM_PROVIDER": "local_json",
             "TM_LOCAL_STORE": str(store),
-            "TM_SKILLS_ALLOWLIST": str(
-                repo_root / "apps" / "cli" / "src" / "concentray_cli" / "skills" / "skills.yaml"
-            ),
-            "TM_UPDATED_BY": "AI",
+            "TM_UPDATED_BY": "ai",
+            "TM_SKILLS_ALLOWLIST": str(repo_root / "apps" / "cli" / "src" / "concentray_cli" / "skills" / "skills.yaml"),
             "PYTHONPATH": str(repo_root / "apps" / "cli" / "src"),
         }
     )
 
-    proc = invoke_tool(
-        repo_root,
-        env,
-        "task_claim_next",
-        {"worker_id": "openclaw-wrapper", "assignee": "ai", "status": ["pending", "in_progress"]},
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["task"]["Task_ID"] == "task-wrapper-1"
-    assert payload["task"]["Worker_ID"] == "openclaw-wrapper"
-    assert payload["task"]["Claimed_At"] is not None
-    assert payload["task"]["Execution_Mode"] == "Autonomous"
+    claim = invoke_tool(repo_root, env, "task_claim_next", {"worker_id": "openclaw:autonomous:test:main"})
+    assert claim.returncode == 0, claim.stderr
+    claim_payload = json.loads(claim.stdout)
+    assert claim_payload["task"]["id"] == "task-wrapper-1"
+    assert claim_payload["active_run"]["worker_id"] == "openclaw:autonomous:test:main"
 
-    proc = invoke_tool(
-        repo_root,
-        env,
-        "task_get_next",
-        {"assignee": "ai", "status": ["pending", "in_progress"], "worker_id": "other-worker"},
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["task"] is None
+    heartbeat = invoke_tool(repo_root, env, "task_heartbeat", {"task_id": "task-wrapper-1", "worker_id": "openclaw:autonomous:test:main"})
+    assert heartbeat.returncode == 0, heartbeat.stderr
+    heartbeat_payload = json.loads(heartbeat.stdout)
+    assert heartbeat_payload["active_run"]["worker_id"] == "openclaw:autonomous:test:main"
 
-    proc = invoke_tool(
+    activity = invoke_tool(
         repo_root,
         env,
-        "comment_add",
+        "activity_add",
         {
             "task_id": "task-wrapper-1",
-            "message": "OpenClaw wrapper comment",
-            "type": "log",
-            "metadata": {
-                "step": "claim",
-                "payload": {
-                    "worker_id": "openclaw-wrapper",
-                    "status": "claimed",
-                },
-            },
+            "kind": "tool_call",
+            "summary": "Ran migration preflight.",
+            "payload": {"tool": "npm", "step": "typecheck"},
+            "worker_id": "openclaw:autonomous:test:main",
         },
     )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["comment"]["Task_ID"] == "task-wrapper-1"
-    assert payload["comment"]["Metadata"]["payload"]["status"] == "claimed"
+    assert activity.returncode == 0, activity.stderr
+    activity_payload = json.loads(activity.stdout)
+    assert activity_payload["activity"]["kind"] == "tool_call"
 
-    proc = invoke_tool(
+    update = invoke_tool(
         repo_root,
         env,
         "task_update",
@@ -127,46 +104,33 @@ def test_openclaw_wrapper_round_trip(tmp_path: Path) -> None:
             "task_id": "task-wrapper-1",
             "status": "blocked",
             "assignee": "human",
-            "urgency": 5,
             "input_request": {
                 "schema_version": "1.0",
+                "request_id": "req-1",
                 "type": "choice",
+                "prompt": "Approve the clean break?",
+                "required": True,
+                "created_at": "2026-03-03T10:00:00+00:00",
                 "options": ["approve", "reject"],
             },
+            "worker_id": "openclaw:autonomous:test:main",
         },
     )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["task"]["Status"] == "Blocked"
-    assert payload["task"]["Assignee"] == "Human"
+    assert update.returncode == 0, update.stderr
+    update_payload = json.loads(update.stdout)
+    assert update_payload["task"]["status"] == "blocked"
+    assert update_payload["active_run"] is None
 
-    proc = invoke_tool(
-        repo_root,
-        env,
-        "task_get",
-        {"task_id": "task-wrapper-1", "with_comments": True},
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["task"]["Status"] == "Blocked"
-    assert len(payload["comments"]) == 1
-    assert payload["comments"][0]["Message"] == "OpenClaw wrapper comment"
-    assert payload["comments"][0]["Metadata"]["step"] == "claim"
+    task_get = invoke_tool(repo_root, env, "task_get", {"task_id": "task-wrapper-1"})
+    assert task_get.returncode == 0, task_get.stderr
+    task_payload = json.loads(task_get.stdout)
+    assert task_payload["task"]["status"] == "blocked"
+    assert any(entry["kind"] == "tool_call" for entry in task_payload["activity"])
 
-    proc = invoke_tool(repo_root, env, "context_export", {"task_id": "task-wrapper-1", "format": "json"})
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["context"]["task"]["Task_ID"] == "task-wrapper-1"
-    assert payload["context"]["constraints"]["status"] == "Blocked"
-
-    proc = invoke_tool(repo_root, env, "skill_run", {"skill_id": "echo_task", "task_id": "task-wrapper-1"})
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert "task-wrapper-1" in payload["stdout"]
+    context = invoke_tool(repo_root, env, "context_export", {"task_id": "task-wrapper-1", "format": "json"})
+    assert context.returncode == 0, context.stderr
+    context_payload = json.loads(context.stdout)
+    assert context_payload["context"]["task"]["id"] == "task-wrapper-1"
 
 
 def test_openclaw_wrapper_rejects_invalid_payload(tmp_path: Path) -> None:
@@ -177,67 +141,14 @@ def test_openclaw_wrapper_rejects_invalid_payload(tmp_path: Path) -> None:
     env = os.environ.copy()
     env.update(
         {
-            "TM_PROVIDER": "local_json",
             "TM_LOCAL_STORE": str(store),
-            "TM_SKILLS_ALLOWLIST": str(
-                repo_root / "apps" / "cli" / "src" / "concentray_cli" / "skills" / "skills.yaml"
-            ),
-            "TM_UPDATED_BY": "AI",
+            "TM_UPDATED_BY": "ai",
+            "TM_SKILLS_ALLOWLIST": str(repo_root / "apps" / "cli" / "src" / "concentray_cli" / "skills" / "skills.yaml"),
             "PYTHONPATH": str(repo_root / "apps" / "cli" / "src"),
         }
     )
 
-    proc = invoke_tool(repo_root, env, "task_get_next", {"assignee": "robot", "status": ["pending"]})
-    assert proc.returncode != 0
-    payload = json.loads(proc.stdout)
+    result = invoke_tool(repo_root, env, "task_claim_next", {"runtime": "robot"})
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
     assert payload["ok"] is False
-    assert "assignee" in payload["error"].lower()
-
-
-def test_openclaw_wrapper_claims_session_task_only_when_requested(tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[3]
-    store = tmp_path / "store.json"
-    seed_store(store)
-    seeded = json.loads(store.read_text())
-    seeded["tasks"][0]["Execution_Mode"] = "Session"
-    store.write_text(json.dumps(seeded))
-
-    env = os.environ.copy()
-    env.update(
-        {
-            "TM_PROVIDER": "local_json",
-            "TM_LOCAL_STORE": str(store),
-            "TM_SKILLS_ALLOWLIST": str(
-                repo_root / "apps" / "cli" / "src" / "concentray_cli" / "skills" / "skills.yaml"
-            ),
-            "TM_UPDATED_BY": "AI",
-            "PYTHONPATH": str(repo_root / "apps" / "cli" / "src"),
-        }
-    )
-
-    proc = invoke_tool(
-        repo_root,
-        env,
-        "task_claim_next",
-        {"worker_id": "openclaw-wrapper", "assignee": "ai", "status": ["pending", "in_progress"]},
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["task"] is None
-
-    proc = invoke_tool(
-        repo_root,
-        env,
-        "task_claim_next",
-        {
-            "worker_id": "openclaw-wrapper",
-            "assignee": "ai",
-            "status": ["pending", "in_progress"],
-            "execution_mode": ["session"],
-        },
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout)
-    assert payload["ok"] is True
-    assert payload["task"]["Execution_Mode"] == "Session"

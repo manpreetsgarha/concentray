@@ -1,11 +1,10 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "context_export.input.v1",
+  "$id": "context_export.input.v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "task_id": { "type": "string", "minLength": 1 },
-    "format": { "type": "string", "enum": ["json"], "default": "json" }
+    "format": { "type": "string", "enum": ["json"] }
   },
   "required": ["task_id"]
 }

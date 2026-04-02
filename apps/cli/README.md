@@ -22,7 +22,7 @@ Agent installers are also available as hidden advanced commands.
 
 The CLI is now split by responsibility instead of one large entrypoint:
 
-- `commands/` contains Typer command groups (`task`, `comment`, `context`, `workspace`, `agent`, runtime)
+- `commands/` contains Typer command groups (`task`, `note`, `activity`, `context`, `workspace`, `agent`, runtime)
 - `parsing.py` owns option normalization and validation helpers
 - `runtime_support.py` owns background runtime/process helpers
 - `installers.py` owns agent-install template rendering and OpenClaw registration helpers
@@ -104,18 +104,18 @@ concentray workspace use personal
 concentray workspace status --json
 ```
 
-v1 is intentionally local-first.
+v2 is intentionally local-first.
 
 ## Example
 
 ```bash
-concentray task claim-next --worker-id codex-main --assignee ai --status pending,in_progress --execution-mode autonomous --json
+concentray task claim-next --runtime codex --worker-id codex:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
 Read-only queue inspection still uses:
 
 ```bash
-concentray task get-next --assignee ai --status pending,in_progress --execution-mode session,autonomous --json
+concentray task get-next --runtime codex --worker-id codex:session:$(hostname -s):main --status pending,in_progress --execution-mode session,autonomous --json
 ```
 
 Delete a task:
@@ -124,18 +124,18 @@ Delete a task:
 concentray task delete task-123 --json
 ```
 
-Structured verbose log example:
+Structured machine activity example:
 
 ```bash
-concentray comment add task-123 --message "Step completed" --type log --metadata '{"step":"build","payload":{"files":2}}' --json
+concentray activity add task-123 --kind tool_call --summary "Step completed" --payload '{"step":"build","files":2}' --runtime codex --worker-id codex:session:$(hostname -s):main --json
 ```
 
-Use `log` comments for machine-oriented traces and raw payloads. Keep `message`, `decision`, and `attachment` comments operator-facing.
+Human notes stay in `note add`. Machine progress, tool traces, lease recovery, and check-in replies live in `activity add`.
 
 Claim semantics:
 
 - `worker_id` identifies the active agent instance
-- `claimed_at` records when work was claimed
+- `active_run` records runtime ownership and heartbeats
 - `execution_mode=autonomous` is the unattended/OpenClaw queue
 - `execution_mode=session` is reserved for a live Claude/Codex session that was explicitly asked to pull the next task
 - `task claim-next` defaults to `--execution-mode autonomous`
@@ -204,7 +204,7 @@ cd /path/to/concentray
 bash openclaw/examples/smoke.sh
 ```
 
-Logs are posted through `comment_add` with `type=log` and optional structured `metadata`. There is no separate OpenClaw log tool.
+OpenClaw posts machine activity through `activity_add`, and human/operator notes stay separate through `note add`.
 
 ## Agent installers
 

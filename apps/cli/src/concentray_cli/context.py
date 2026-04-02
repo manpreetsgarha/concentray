@@ -2,39 +2,50 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from concentray_cli.models import Comment, Task
+from concentray_cli.models import Activity, Note, Run, Task
 
 
-def build_context_envelope(task: Task, comments: List[Comment]) -> Dict[str, Any]:
+def build_context_envelope(task: Task, active_run: Run | None, notes: List[Note], activity: List[Activity]) -> Dict[str, Any]:
     assignee = task.assignee.value if hasattr(task.assignee, "value") else str(task.assignee)
-    created_by = task.created_by.value if hasattr(task.created_by, "value") else str(task.created_by)
     execution_mode = task.execution_mode.value if hasattr(task.execution_mode, "value") else str(task.execution_mode)
     status = task.status.value if hasattr(task.status, "value") else str(task.status)
+    target_runtime = task.target_runtime.value if hasattr(task.target_runtime, "value") else task.target_runtime
 
     return {
-        "schema_version": "1.0",
-        "task": task.model_dump(by_alias=True),
+        "schema_version": "2.0",
+        "task": task.model_dump(),
+        "active_run": active_run.model_dump() if active_run else None,
         "context": {
             "context_link": task.context_link,
             "title": task.title,
             "assignee": assignee,
-            "created_by": created_by,
+            "target_runtime": target_runtime,
             "execution_mode": execution_mode,
         },
         "input_request": task.input_request,
-        "comments": [comment.model_dump(by_alias=True) for comment in comments],
+        "notes": [note.model_dump() for note in notes],
+        "activity": [entry.model_dump() for entry in activity],
+        "pending_check_in": (
+            {
+                "requested_at": task.check_in_requested_at,
+                "requested_by": task.check_in_requested_by,
+            }
+            if task.check_in_requested_at
+            else None
+        ),
         "artifacts": [
             {
-                "attachment_link": c.attachment_link,
-                "comment_id": c.comment_id,
+                "attachment": note.attachment,
+                "note_id": note.id,
             }
-            for c in comments
-            if c.attachment_link
+            for note in notes
+            if note.attachment
         ],
         "constraints": {
             "status": status,
             "ai_urgency": task.ai_urgency,
             "execution_mode": execution_mode,
+            "target_runtime": target_runtime,
         },
         "timestamps": {
             "task_updated_at": task.updated_at,

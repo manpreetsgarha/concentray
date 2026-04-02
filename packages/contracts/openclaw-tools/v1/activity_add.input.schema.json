@@ -1,0 +1,15 @@
+{
+  "$id": "activity_add.input.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "task_id": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "payload": { "type": ["object", "null"] },
+    "runtime": { "type": "string", "enum": ["openclaw", "claude", "codex"] },
+    "worker_id": { "type": "string", "minLength": 1 },
+    "clear_check_in": { "type": "boolean" }
+  },
+  "required": ["task_id", "kind", "summary"]
+}

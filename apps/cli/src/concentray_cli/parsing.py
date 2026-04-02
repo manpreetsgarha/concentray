@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 import typer
 
-from concentray_cli.models import Actor, CommentType, TaskExecutionMode, TaskStatus, UpdatedBy
+from concentray_cli.models import Assignee, Runtime, TaskExecutionMode, TaskStatus, UpdatedBy
 
 
 STATUS_MAP = {
@@ -20,9 +21,15 @@ EXECUTION_MODE_MAP = {
     "session": TaskExecutionMode.SESSION,
 }
 
-ACTOR_MAP = {
-    "ai": Actor.AI,
-    "human": Actor.HUMAN,
+ASSIGNEE_MAP = {
+    "ai": Assignee.AI,
+    "human": Assignee.HUMAN,
+}
+
+RUNTIME_MAP = {
+    "openclaw": Runtime.OPENCLAW,
+    "claude": Runtime.CLAUDE,
+    "codex": Runtime.CODEX,
 }
 
 UPDATED_BY_MAP = {
@@ -31,12 +38,7 @@ UPDATED_BY_MAP = {
     "system": UpdatedBy.SYSTEM,
 }
 
-COMMENT_TYPE_MAP = {
-    "message": CommentType.MESSAGE,
-    "log": CommentType.LOG,
-    "decision": CommentType.DECISION,
-    "attachment": CommentType.ATTACHMENT,
-}
+WORKER_ID_PATTERN = re.compile(r"^[a-z0-9._:-]+$")
 
 
 def parse_statuses(raw: str) -> List[TaskStatus]:
@@ -73,31 +75,35 @@ def parse_execution_mode(raw: str) -> TaskExecutionMode:
     return modes[0]
 
 
-def parse_actor(raw: str) -> Actor:
+def parse_assignee(raw: str) -> Assignee:
     key = raw.strip().lower()
-    if key not in ACTOR_MAP:
-        raise typer.BadParameter("Actor must be 'ai' or 'human'")
-    return ACTOR_MAP[key]
+    if key not in ASSIGNEE_MAP:
+        raise typer.BadParameter("assignee must be 'ai' or 'human'")
+    return ASSIGNEE_MAP[key]
+
+
+def parse_runtime(raw: str) -> Runtime:
+    key = raw.strip().lower()
+    if key not in RUNTIME_MAP:
+        raise typer.BadParameter("runtime must be one of: openclaw, claude, codex")
+    return RUNTIME_MAP[key]
 
 
 def parse_updated_by(raw: str) -> UpdatedBy:
     key = raw.strip().lower()
     if key not in UPDATED_BY_MAP:
-        raise typer.BadParameter("TM_UPDATED_BY must be one of: AI, Human, System")
+        raise typer.BadParameter("updated_by must be one of: ai, human, system")
     return UPDATED_BY_MAP[key]
-
-
-def parse_comment_type(raw: str) -> CommentType:
-    key = raw.strip().lower()
-    if key not in COMMENT_TYPE_MAP:
-        raise typer.BadParameter("Invalid comment --type")
-    return COMMENT_TYPE_MAP[key]
 
 
 def normalize_worker_id(raw: Optional[str]) -> Optional[str]:
     if raw is None:
         return None
     value = raw.strip()
+    if not value:
+        return None
+    if not WORKER_ID_PATTERN.fullmatch(value):
+        raise typer.BadParameter("worker_id may only contain lowercase letters, numbers, '.', '_', ':', and '-'")
     return value or None
 
 
