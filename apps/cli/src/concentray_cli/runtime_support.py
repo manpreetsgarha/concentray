@@ -100,6 +100,23 @@ def spawn_background_process(
     return process
 
 
+def build_client_contracts(log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    process = subprocess.run(
+        ["pnpm", "--filter", "@concentray/contracts", "build"],
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=str(project_root()),
+        env=dict(os.environ),
+    )
+    log_path.write_text((process.stdout or "") + (process.stderr or ""))
+    if process.returncode != 0:
+        raise typer.BadParameter(
+            "Building @concentray/contracts failed.\n" f"Log: {log_path}\n" f"{tail_text(log_path)}"
+        )
+
+
 def build_background_web_bundle(api_url: str, output_dir: Path, log_path: Path) -> None:
     client_dir = project_root() / "apps" / "client"
     if output_dir.exists():
@@ -108,6 +125,7 @@ def build_background_web_bundle(api_url: str, output_dir: Path, log_path: Path) 
         shutil.rmtree(output_dir)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    build_client_contracts(runtime_log_path("contracts-build"))
 
     env = dict(os.environ)
     env["EXPO_NO_DOTENV"] = "1"

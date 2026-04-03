@@ -3,9 +3,6 @@
   "compilerOptions": {
     "baseUrl": ".",
     "jsx": "react-jsx",
-    "paths": {
-      "@concentray/contracts": ["../../packages/contracts/src/index.ts"]
-    },
     "types": ["react", "node"]
   },
   "include": ["App.tsx", "src/**/*.ts", "src/**/*.tsx"]

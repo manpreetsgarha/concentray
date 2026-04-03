@@ -270,6 +270,7 @@ def start_workspace(
         try:
             web_cmd = ["pnpm", "--dir", str(client_dir), "web"]
             if lan:
+                runtime_support.build_client_contracts(runtime_support.runtime_log_path("contracts-build"))
                 web_cmd = ["pnpm", "--dir", str(client_dir), "exec", "expo", "start", "--web", "--host", "lan"]
             web_process = subprocess.Popen(web_cmd, env=env)
             typer.echo(f"Started web app in {client_dir} (EXPO_PUBLIC_LOCAL_API_URL={env['EXPO_PUBLIC_LOCAL_API_URL']})")

@@ -22,3 +22,4 @@ build
 .expo
 apps/client/.expo
 apps/client/.expo-shared
+.gstack/
