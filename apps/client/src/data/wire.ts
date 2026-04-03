@@ -1,4 +1,12 @@
-import type { Activity, Note, NoteAttachmentMeta, Run, Runtime, Task, TaskExecutionMode, TaskStatus, UpdatedBy, WorkspaceSummary } from "../types";
+import {
+  activityRecordSchema,
+  noteRecordSchema,
+  runRecordSchema,
+  taskRecordSchema,
+} from "@concentray/contracts";
+import { z } from "zod";
+
+import type { Activity, Note, Run, Runtime, Task, TaskExecutionMode, TaskStatus, UpdatedBy, WorkspaceSummary } from "../types";
 
 export interface WireTask {
   id: string;
@@ -60,6 +68,14 @@ export interface WireWorkspace {
   active?: boolean;
 }
 
+const workspaceSchema = z
+  .object({
+    name: z.string().min(1),
+    store: z.string().nullable().optional(),
+    active: z.boolean().optional(),
+  })
+  .strict();
+
 export function statusToWire(status: TaskStatus): string {
   return status;
 }
@@ -69,71 +85,76 @@ export function executionModeToWire(mode: TaskExecutionMode): string {
 }
 
 export function toTask(wire: WireTask): Task {
+  const parsed = taskRecordSchema.parse(wire);
   return {
-    id: wire.id,
-    title: wire.title,
-    status: wire.status,
-    assignee: wire.assignee,
-    targetRuntime: wire.target_runtime,
-    executionMode: wire.execution_mode,
-    aiUrgency: wire.ai_urgency,
-    contextLink: wire.context_link,
-    inputRequest: wire.input_request,
-    inputResponse: wire.input_response,
-    activeRunId: wire.active_run_id,
-    checkInRequestedAt: wire.check_in_requested_at,
-    checkInRequestedBy: wire.check_in_requested_by,
-    createdAt: wire.created_at,
-    updatedAt: wire.updated_at,
-    updatedBy: wire.updated_by,
+    id: parsed.id,
+    title: parsed.title,
+    status: parsed.status,
+    assignee: parsed.assignee,
+    targetRuntime: parsed.target_runtime,
+    executionMode: parsed.execution_mode,
+    aiUrgency: parsed.ai_urgency,
+    contextLink: parsed.context_link,
+    inputRequest: parsed.input_request,
+    inputResponse: parsed.input_response,
+    activeRunId: parsed.active_run_id,
+    checkInRequestedAt: parsed.check_in_requested_at,
+    checkInRequestedBy: parsed.check_in_requested_by,
+    createdAt: parsed.created_at,
+    updatedAt: parsed.updated_at,
+    updatedBy: parsed.updated_by,
   };
 }
 
 export function toNote(wire: WireNote): Note {
+  const parsed = noteRecordSchema.parse(wire);
   return {
-    id: wire.id,
-    taskId: wire.task_id,
-    author: wire.author,
-    kind: wire.kind,
-    content: wire.content,
-    attachment: wire.attachment as NoteAttachmentMeta | Record<string, unknown> | null,
-    createdAt: wire.created_at,
+    id: parsed.id,
+    taskId: parsed.task_id,
+    author: parsed.author,
+    kind: parsed.kind,
+    content: parsed.content,
+    attachment: parsed.attachment,
+    createdAt: parsed.created_at,
   };
 }
 
 export function toRun(wire: WireRun): Run {
+  const parsed = runRecordSchema.parse(wire);
   return {
-    id: wire.id,
-    taskId: wire.task_id,
-    runtime: wire.runtime,
-    workerId: wire.worker_id,
-    status: wire.status,
-    startedAt: wire.started_at,
-    lastHeartbeatAt: wire.last_heartbeat_at,
-    endedAt: wire.ended_at,
-    leaseSeconds: wire.lease_seconds,
-    endReason: wire.end_reason,
+    id: parsed.id,
+    taskId: parsed.task_id,
+    runtime: parsed.runtime,
+    workerId: parsed.worker_id,
+    status: parsed.status,
+    startedAt: parsed.started_at,
+    lastHeartbeatAt: parsed.last_heartbeat_at,
+    endedAt: parsed.ended_at,
+    leaseSeconds: parsed.lease_seconds,
+    endReason: parsed.end_reason,
   };
 }
 
 export function toActivity(wire: WireActivity): Activity {
+  const parsed = activityRecordSchema.parse(wire);
   return {
-    id: wire.id,
-    taskId: wire.task_id,
-    runId: wire.run_id,
-    runtime: wire.runtime,
-    actor: wire.actor,
-    kind: wire.kind,
-    summary: wire.summary,
-    payload: wire.payload,
-    createdAt: wire.created_at,
+    id: parsed.id,
+    taskId: parsed.task_id,
+    runId: parsed.run_id,
+    runtime: parsed.runtime,
+    actor: parsed.actor,
+    kind: parsed.kind,
+    summary: parsed.summary,
+    payload: parsed.payload,
+    createdAt: parsed.created_at,
   };
 }
 
 export function toWorkspace(wire: WireWorkspace): WorkspaceSummary {
+  const parsed = workspaceSchema.parse(wire);
   return {
-    name: wire.name,
-    store: wire.store ?? null,
-    active: Boolean(wire.active),
+    name: parsed.name,
+    store: parsed.store ?? null,
+    active: Boolean(parsed.active),
   };
 }

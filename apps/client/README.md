@@ -13,10 +13,11 @@ pnpm web
 
 The client is organized around a few clear layers:
 
-- `src/data` handles demo records and wire-to-domain mapping
+- `src/data` handles API helpers and wire-to-domain mapping
+- `src/hooks` owns shared API access helpers
 - `src/lib` holds pure formatting and upload helpers
-- `src/ui` contains reusable presentation components
-- `App.tsx` coordinates state, API calls, and screen composition
+- `src/ui` contains reusable presentation components for the sidebar, task detail, attachments, and confirmation flows
+- `App.tsx` is the shell that composes the task sidebar, detail pane, and creation modals
 
 Shared domain primitives such as actor/status/execution-mode/input-request types come from `@concentray/contracts`.
 Client-specific view models stay in `src/types.ts`.

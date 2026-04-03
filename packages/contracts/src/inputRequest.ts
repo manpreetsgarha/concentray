@@ -1,13 +1,15 @@
 import { z } from "zod";
 
+import { isoTimestampSchema } from "./timestamps.js";
+
 export const inputRequestBaseSchema = z.object({
   schema_version: z.literal("1.0"),
   request_id: z.string().min(1),
   type: z.enum(["choice", "approve_reject", "text_input", "file_or_photo"]),
   prompt: z.string().min(1),
   required: z.boolean(),
-  created_at: z.string().datetime(),
-  expires_at: z.string().datetime().optional()
+  created_at: isoTimestampSchema,
+  expires_at: isoTimestampSchema.optional()
 });
 
 export const choiceInputRequestSchema = inputRequestBaseSchema.extend({

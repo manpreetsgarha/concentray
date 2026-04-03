@@ -13,13 +13,25 @@ describe("wire adapters", () => {
       execution_mode: "autonomous",
       ai_urgency: 5,
       context_link: "https://example.com/brief",
-      input_request: null,
-      input_response: null,
+      input_request: {
+        schema_version: "1.0",
+        request_id: "req-1",
+        type: "choice",
+        prompt: "Choose a lane.",
+        required: true,
+        created_at: "2026-03-01T10:04:00+00:00",
+        options: ["main", "staging"],
+        allow_multiple: false,
+      },
+      input_response: {
+        type: "choice",
+        selections: ["main"],
+      },
       active_run_id: "run-1",
       check_in_requested_at: null,
       check_in_requested_by: null,
-      created_at: "2026-03-01T10:00:00Z",
-      updated_at: "2026-03-01T10:05:00Z",
+      created_at: "2026-03-01T10:00:00+00:00",
+      updated_at: "2026-03-01T10:05:00+00:00",
       updated_by: "human",
     });
 
@@ -29,6 +41,13 @@ describe("wire adapters", () => {
       targetRuntime: "openclaw",
       executionMode: "autonomous",
       activeRunId: "run-1",
+      inputRequest: {
+        type: "choice",
+      },
+      inputResponse: {
+        type: "choice",
+        selections: ["main"],
+      },
     });
   });
 
@@ -37,10 +56,16 @@ describe("wire adapters", () => {
       id: "note-1",
       task_id: "task-1",
       author: "human",
-      kind: "note",
-      content: "Needs a cleaner run lease model.",
-      attachment: null,
-      created_at: "2026-03-01T10:06:00Z",
+      kind: "attachment",
+      content: "Attached the signed approval PDF.",
+      attachment: {
+        kind: "file",
+        filename: "approval.pdf",
+        mime_type: "application/pdf",
+        size_bytes: 4096,
+        download_link: "http://127.0.0.1:8787/files/approval.pdf",
+      },
+      created_at: "2026-03-01T10:06:00+00:00",
     });
     const run = toRun({
       id: "run-1",
@@ -48,8 +73,8 @@ describe("wire adapters", () => {
       runtime: "openclaw",
       worker_id: "openclaw:autonomous:test:main",
       status: "active",
-      started_at: "2026-03-01T10:05:00Z",
-      last_heartbeat_at: "2026-03-01T10:06:00Z",
+      started_at: "2026-03-01T10:05:00+00:00",
+      last_heartbeat_at: "2026-03-01T10:06:00+00:00",
       ended_at: null,
       lease_seconds: 600,
       end_reason: null,
@@ -63,7 +88,7 @@ describe("wire adapters", () => {
       kind: "tool_call",
       summary: "Ran migration dry-run.",
       payload: { command: "pnpm typecheck" },
-      created_at: "2026-03-01T10:06:30Z",
+      created_at: "2026-03-01T10:06:30+00:00",
     });
     const workspace = toWorkspace({
       name: "default",
@@ -72,6 +97,7 @@ describe("wire adapters", () => {
     });
 
     expect(note.taskId).toBe("task-1");
+    expect(note.attachment?.filename).toBe("approval.pdf");
     expect(run.workerId).toBe("openclaw:autonomous:test:main");
     expect(activity.kind).toBe("tool_call");
     expect(workspace).toEqual({ name: "default", store: ".data/store.json", active: true });

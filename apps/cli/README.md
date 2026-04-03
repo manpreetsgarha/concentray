@@ -88,6 +88,8 @@ python3.11 -m pytest -q
 
 `TM_PROVIDER=local_json`
 
+The local JSON store is a development datastore, not a stable migration surface. If task schema changes, reinitialize the workspace instead of expecting on-disk compatibility.
+
 ## Saved workspaces
 
 The CLI can keep reusable workspace profiles in:
@@ -124,6 +126,12 @@ Delete a task:
 concentray task delete task-123 --json
 ```
 
+Respond to a blocker request and return the task to the AI queue:
+
+```bash
+concentray task respond task-123 --response '{"type":"choice","selections":["main"]}' --json
+```
+
 Structured machine activity example:
 
 ```bash
@@ -131,6 +139,7 @@ concentray activity add task-123 --kind tool_call --summary "Step completed" --p
 ```
 
 Human notes stay in `note add`. Machine progress, tool traces, lease recovery, and check-in replies live in `activity add`.
+Human unblock responses should prefer `task respond` over hand-editing `input_response`.
 
 Claim semantics:
 

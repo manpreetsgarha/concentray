@@ -1,5 +1,8 @@
 import type {
   ActivityRecord,
+  AttachmentMeta,
+  InputRequest,
+  InputResponse,
   NoteKind,
   Runtime,
   RunRecord,
@@ -19,8 +22,8 @@ export interface Task {
   targetRuntime: Runtime | null;
   aiUrgency: number;
   contextLink: string | null;
-  inputRequest: Record<string, unknown> | null;
-  inputResponse: Record<string, unknown> | null;
+  inputRequest: InputRequest | null;
+  inputResponse: InputResponse | null;
   activeRunId: string | null;
   checkInRequestedAt: string | null;
   checkInRequestedBy: UpdatedBy | null;
@@ -35,7 +38,7 @@ export interface Note {
   author: UpdatedBy;
   kind: NoteKind;
   content: string;
-  attachment: Record<string, unknown> | null;
+  attachment: AttachmentMeta | null;
   createdAt: string;
 }
 

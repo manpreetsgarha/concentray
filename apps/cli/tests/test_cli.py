@@ -172,3 +172,61 @@ def test_request_check_in_and_heartbeat_surface_pending_request(tmp_path: Path) 
     assert heartbeat.exit_code == 0
     payload = json.loads(heartbeat.stdout)
     assert payload["pending_check_in"]["requested_by"] == "human"
+
+
+def test_task_respond_unblocks_human_blocker(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    seed_store(store)
+    env = {**os.environ, **cli_env(store)}
+
+    claim = runner.invoke(
+        app,
+        ["task", "claim-next", "--runtime", "openclaw", "--worker-id", "openclaw:autonomous:test:main", "--json"],
+        env=env,
+    )
+    assert claim.exit_code == 0
+
+    block = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "task-openclaw",
+            "--status",
+            "blocked",
+            "--assignee",
+            "human",
+            "--runtime",
+            "openclaw",
+            "--worker-id",
+            "openclaw:autonomous:test:main",
+            "--input-request",
+            '{"schema_version":"1.0","request_id":"req-1","type":"choice","prompt":"Choose a lane.","required":true,"created_at":"2026-03-03T10:00:00+00:00","options":["main","staging"]}',
+            "--json",
+        ],
+        env=env,
+    )
+    assert block.exit_code == 0
+
+    respond = runner.invoke(
+        app,
+        ["task", "respond", "task-openclaw", "--response", '{"type":"choice","selections":["main"]}', "--json"],
+        env={**env, "TM_UPDATED_BY": "human"},
+    )
+    assert respond.exit_code == 0
+    payload = json.loads(respond.stdout)
+    assert payload["task"]["status"] == "pending"
+    assert payload["task"]["assignee"] == "ai"
+    assert payload["task"]["target_runtime"] == "openclaw"
+    assert payload["task"]["execution_mode"] == "autonomous"
+    assert payload["task"]["input_request"] is None
+    assert payload["task"]["input_response"]["selections"] == ["main"]
+
+    reclaim = runner.invoke(
+        app,
+        ["task", "claim-next", "--runtime", "openclaw", "--worker-id", "openclaw:autonomous:test:main", "--json"],
+        env=env,
+    )
+    assert reclaim.exit_code == 0
+    reclaim_payload = json.loads(reclaim.stdout)
+    assert reclaim_payload["task"]["id"] == "task-openclaw"

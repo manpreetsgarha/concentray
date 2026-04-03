@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from threading import Barrier, Thread
 
+import pytest
+
 from concentray_cli.models import Runtime, TaskExecutionMode, TaskStatus, UpdatedBy
 from concentray_cli.providers.local_json import LocalJsonProvider
 
@@ -18,6 +20,8 @@ def _task(
     updated_at: str | None = None,
     updated_by: str = "human",
     active_run_id: str | None = None,
+    input_request: dict | None = None,
+    input_response: dict | None = None,
 ) -> dict:
     return {
         "id": task_id,
@@ -28,8 +32,8 @@ def _task(
         "execution_mode": execution_mode,
         "ai_urgency": ai_urgency,
         "context_link": None,
-        "input_request": None,
-        "input_response": None,
+        "input_request": input_request,
+        "input_response": input_response,
         "active_run_id": active_run_id,
         "check_in_requested_at": None,
         "check_in_requested_by": None,
@@ -266,3 +270,234 @@ def test_add_note_creates_human_note_and_activity_record(tmp_path: Path) -> None
     assert notes[0].kind == "attachment"
     assert activity[-1].kind == "note_added"
     assert activity[-1].payload == {"note_id": note.id, "kind": "attachment"}
+
+
+def test_update_task_rejects_input_request_without_human_blocked_state(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(store, tasks=[_task("task-1", target_runtime="openclaw")])
+    provider = LocalJsonProvider(store)
+
+    with pytest.raises(ValueError, match="input_request requires status='blocked' and assignee='human'"):
+        provider.update_task(
+            "task-1",
+            {
+                "input_request": {
+                    "schema_version": "1.0",
+                    "request_id": "req-1",
+                    "type": "choice",
+                    "prompt": "Choose a deploy target.",
+                    "required": True,
+                    "created_at": "2026-03-03T10:00:00+00:00",
+                    "options": ["main", "staging"],
+                }
+            },
+            updated_by=UpdatedBy.AI,
+            runtime=Runtime.OPENCLAW,
+            worker_id="openclaw:autonomous:test:main",
+            allow_override=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("input_request", "response", "expected_type"),
+    [
+        (
+            {
+                "schema_version": "1.0",
+                "request_id": "req-choice",
+                "type": "choice",
+                "prompt": "Choose a deploy target.",
+                "required": True,
+                "created_at": "2026-03-03T10:00:00+00:00",
+                "options": ["main", "staging"],
+                "allow_multiple": False,
+            },
+            {"type": "choice", "selections": ["main"]},
+            "choice",
+        ),
+        (
+            {
+                "schema_version": "1.0",
+                "request_id": "req-approve",
+                "type": "approve_reject",
+                "prompt": "Ship the release?",
+                "required": True,
+                "created_at": "2026-03-03T10:00:00+00:00",
+                "approve_label": "Ship",
+                "reject_label": "Hold",
+            },
+            {"type": "approve_reject", "approved": True},
+            "approve_reject",
+        ),
+        (
+            {
+                "schema_version": "1.0",
+                "request_id": "req-text",
+                "type": "text_input",
+                "prompt": "Provide the exact company tagline.",
+                "required": True,
+                "created_at": "2026-03-03T10:00:00+00:00",
+                "max_length": 200,
+            },
+            {"type": "text_input", "value": "The durable coordination layer."},
+            "text_input",
+        ),
+        (
+            {
+                "schema_version": "1.0",
+                "request_id": "req-file",
+                "type": "file_or_photo",
+                "prompt": "Upload the signed approval PDF.",
+                "required": True,
+                "created_at": "2026-03-03T10:00:00+00:00",
+                "accept": ["application/pdf"],
+                "max_files": 1,
+                "max_size_mb": 5,
+            },
+            {
+                "type": "file_or_photo",
+                "files": [
+                    {
+                        "kind": "file",
+                        "filename": "approval.pdf",
+                        "mime_type": "application/pdf",
+                        "size_bytes": 4096,
+                        "download_link": "http://127.0.0.1:8787/files/approval.pdf",
+                    }
+                ],
+            },
+            "file_or_photo",
+        ),
+    ],
+)
+def test_respond_to_input_request_unblocks_and_stores_typed_response(
+    tmp_path: Path,
+    input_request: dict,
+    response: dict,
+    expected_type: str,
+) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(
+        store,
+        tasks=[
+            _task(
+                "blocked-task",
+                status="blocked",
+                assignee="human",
+                target_runtime="openclaw",
+                input_request=input_request,
+                execution_mode="autonomous",
+            )
+        ],
+    )
+    provider = LocalJsonProvider(store)
+
+    updated = provider.respond_to_input_request(
+        "blocked-task",
+        updated_by=UpdatedBy.HUMAN,
+        response=response,
+    )
+
+    assert updated.status == "pending"
+    assert updated.assignee == "ai"
+    assert updated.input_request is None
+    assert updated.input_response is not None
+    assert updated.input_response["type"] == expected_type
+
+    activity = provider.list_activity("blocked-task")
+    assert activity[-1].kind == "input_responded"
+
+
+def test_respond_to_input_request_rejects_mismatched_payload(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(
+        store,
+        tasks=[
+            _task(
+                "blocked-task",
+                status="blocked",
+                assignee="human",
+                target_runtime="openclaw",
+                input_request={
+                    "schema_version": "1.0",
+                    "request_id": "req-choice",
+                    "type": "choice",
+                    "prompt": "Choose a deploy target.",
+                    "required": True,
+                    "created_at": "2026-03-03T10:00:00+00:00",
+                    "options": ["main", "staging"],
+                },
+            )
+        ],
+    )
+    provider = LocalJsonProvider(store)
+
+    with pytest.raises(ValueError, match="must match the active input request type"):
+        provider.respond_to_input_request(
+            "blocked-task",
+            updated_by=UpdatedBy.HUMAN,
+            response={"type": "approve_reject", "approved": True},
+        )
+
+
+def test_respond_to_input_request_requires_active_request(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(store, tasks=[_task("task-1", target_runtime="openclaw")])
+    provider = LocalJsonProvider(store)
+
+    with pytest.raises(ValueError, match="does not have an active input request"):
+        provider.respond_to_input_request(
+            "task-1",
+            updated_by=UpdatedBy.HUMAN,
+            response={"type": "text_input", "value": "Done"},
+        )
+
+
+def test_respond_to_input_request_ends_orphaned_active_run(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(
+        store,
+        tasks=[
+            _task(
+                "blocked-task",
+                status="blocked",
+                assignee="human",
+                target_runtime="openclaw",
+                input_request={
+                    "schema_version": "1.0",
+                    "request_id": "req-choice",
+                    "type": "choice",
+                    "prompt": "Choose a deploy target.",
+                    "required": True,
+                    "created_at": "2026-03-03T10:00:00+00:00",
+                    "options": ["main", "staging"],
+                },
+                active_run_id="run-1",
+            )
+        ],
+        runs=[
+            _run(
+                "run-1",
+                "blocked-task",
+                worker_id="openclaw:autonomous:test:main",
+                status="active",
+                started_at="2099-01-01T00:00:00+00:00",
+                last_heartbeat_at="2099-01-01T00:00:00+00:00",
+            )
+        ],
+    )
+    provider = LocalJsonProvider(store)
+
+    updated = provider.respond_to_input_request(
+        "blocked-task",
+        updated_by=UpdatedBy.HUMAN,
+        response={"type": "choice", "selections": ["main"]},
+    )
+
+    assert updated.active_run_id is None
+    assert provider.get_active_run("blocked-task") is None
+
+    payload = json.loads(store.read_text())
+    run = next(item for item in payload["runs"] if item["id"] == "run-1")
+    assert run["status"] == "ended"
+    assert run["end_reason"] == "input_responded"

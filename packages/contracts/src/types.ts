@@ -1,61 +1,106 @@
-export type TaskStatus = "pending" | "in_progress" | "blocked" | "done";
-export type TaskExecutionMode = "autonomous" | "session";
-export type Runtime = "openclaw" | "claude" | "codex";
-export type Actor = "human" | "ai";
-export type UpdatedBy = Actor | "system";
-export type RunStatus = "active" | "expired" | "ended";
-export type NoteKind = "note" | "attachment";
+import { z } from "zod";
 
-export interface TaskRecord {
-  id: string;
-  title: string;
-  status: TaskStatus;
-  assignee: Actor;
-  target_runtime: Runtime | null;
-  execution_mode: TaskExecutionMode;
-  ai_urgency: number;
-  context_link: string | null;
-  input_request: Record<string, unknown> | null;
-  input_response: Record<string, unknown> | null;
-  active_run_id: string | null;
-  check_in_requested_at: string | null;
-  check_in_requested_by: UpdatedBy | null;
-  created_at: string;
-  updated_at: string;
-  updated_by: UpdatedBy;
-}
+import { attachmentMetaSchema } from "./attachment.js";
+import { inputRequestSchema } from "./inputRequest.js";
+import { inputResponseSchema } from "./inputResponse.js";
+import { isoTimestampSchema } from "./timestamps.js";
 
-export interface NoteRecord {
-  id: string;
-  task_id: string;
-  author: UpdatedBy;
-  kind: NoteKind;
-  content: string;
-  attachment: Record<string, unknown> | null;
-  created_at: string;
-}
+export const taskStatusSchema = z.enum(["pending", "in_progress", "blocked", "done"]);
+export type TaskStatus = z.infer<typeof taskStatusSchema>;
 
-export interface RunRecord {
-  id: string;
-  task_id: string;
-  runtime: Runtime;
-  worker_id: string;
-  status: RunStatus;
-  started_at: string;
-  last_heartbeat_at: string;
-  ended_at: string | null;
-  lease_seconds: number;
-  end_reason: string | null;
-}
+export const taskExecutionModeSchema = z.enum(["autonomous", "session"]);
+export type TaskExecutionMode = z.infer<typeof taskExecutionModeSchema>;
 
-export interface ActivityRecord {
-  id: string;
-  task_id: string;
-  run_id: string | null;
-  runtime: Runtime | null;
-  actor: UpdatedBy;
-  kind: string;
-  summary: string;
-  payload: Record<string, unknown> | null;
-  created_at: string;
-}
+export const runtimeSchema = z.enum(["openclaw", "claude", "codex"]);
+export type Runtime = z.infer<typeof runtimeSchema>;
+
+export const actorSchema = z.enum(["human", "ai"]);
+export type Actor = z.infer<typeof actorSchema>;
+
+export const updatedBySchema = z.enum(["human", "ai", "system"]);
+export type UpdatedBy = z.infer<typeof updatedBySchema>;
+
+export const runStatusSchema = z.enum(["active", "expired", "ended"]);
+export type RunStatus = z.infer<typeof runStatusSchema>;
+
+export const noteKindSchema = z.enum(["note", "attachment"]);
+export type NoteKind = z.infer<typeof noteKindSchema>;
+
+export const pendingCheckInSchema = z
+  .object({
+    requested_at: isoTimestampSchema,
+    requested_by: updatedBySchema,
+  })
+  .strict();
+
+export type PendingCheckIn = z.infer<typeof pendingCheckInSchema>;
+
+export const taskRecordSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    status: taskStatusSchema,
+    assignee: actorSchema,
+    target_runtime: runtimeSchema.nullable(),
+    execution_mode: taskExecutionModeSchema,
+    ai_urgency: z.number().int().min(1).max(5),
+    context_link: z.string().nullable(),
+    input_request: inputRequestSchema.nullable(),
+    input_response: inputResponseSchema.nullable(),
+    active_run_id: z.string().nullable(),
+    check_in_requested_at: isoTimestampSchema.nullable(),
+    check_in_requested_by: updatedBySchema.nullable(),
+    created_at: isoTimestampSchema,
+    updated_at: isoTimestampSchema,
+    updated_by: updatedBySchema,
+  })
+  .strict();
+
+export type TaskRecord = z.infer<typeof taskRecordSchema>;
+
+export const noteRecordSchema = z
+  .object({
+    id: z.string().min(1),
+    task_id: z.string().min(1),
+    author: updatedBySchema,
+    kind: noteKindSchema,
+    content: z.string(),
+    attachment: attachmentMetaSchema.nullable(),
+    created_at: isoTimestampSchema,
+  })
+  .strict();
+
+export type NoteRecord = z.infer<typeof noteRecordSchema>;
+
+export const runRecordSchema = z
+  .object({
+    id: z.string().min(1),
+    task_id: z.string().min(1),
+    runtime: runtimeSchema,
+    worker_id: z.string().min(1),
+    status: runStatusSchema,
+    started_at: isoTimestampSchema,
+    last_heartbeat_at: isoTimestampSchema,
+    ended_at: isoTimestampSchema.nullable(),
+    lease_seconds: z.number().int().positive(),
+    end_reason: z.string().nullable(),
+  })
+  .strict();
+
+export type RunRecord = z.infer<typeof runRecordSchema>;
+
+export const activityRecordSchema = z
+  .object({
+    id: z.string().min(1),
+    task_id: z.string().min(1),
+    run_id: z.string().nullable(),
+    runtime: runtimeSchema.nullable(),
+    actor: updatedBySchema,
+    kind: z.string().min(1),
+    summary: z.string().min(1),
+    payload: z.record(z.unknown()).nullable(),
+    created_at: isoTimestampSchema,
+  })
+  .strict();
+
+export type ActivityRecord = z.infer<typeof activityRecordSchema>;

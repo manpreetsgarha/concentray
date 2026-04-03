@@ -84,6 +84,16 @@ class Provider(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def respond_to_input_request(
+        self,
+        task_id: str,
+        *,
+        updated_by: UpdatedBy,
+        response: Dict[str, Any],
+    ) -> Task:
+        raise NotImplementedError
+
+    @abstractmethod
     def add_note(
         self,
         task_id: str,

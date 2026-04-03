@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from concentray_cli.models import Activity, Note, Run, Task
+from concentray_cli.models import Activity, Note, Run, Task, iso_now
 
 
 def build_context_envelope(task: Task, active_run: Run | None, notes: List[Note], activity: List[Activity]) -> Dict[str, Any]:
@@ -23,6 +23,7 @@ def build_context_envelope(task: Task, active_run: Run | None, notes: List[Note]
             "execution_mode": execution_mode,
         },
         "input_request": task.input_request,
+        "input_response": task.input_response,
         "notes": [note.model_dump() for note in notes],
         "activity": [entry.model_dump() for entry in activity],
         "pending_check_in": (
@@ -49,6 +50,6 @@ def build_context_envelope(task: Task, active_run: Run | None, notes: List[Note]
         },
         "timestamps": {
             "task_updated_at": task.updated_at,
-            "generated_at": task.updated_at,
+            "generated_at": iso_now(),
         },
     }

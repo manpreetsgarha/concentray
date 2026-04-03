@@ -1,6 +1,8 @@
 export type {
   Actor,
+  AttachmentMeta,
   InputRequest,
+  InputResponse,
   NoteKind,
   RunStatus,
   Runtime,
@@ -11,7 +13,9 @@ export type {
 
 import type {
   Actor,
+  AttachmentMeta,
   InputRequest,
+  InputResponse,
   NoteKind,
   RunStatus,
   Runtime,
@@ -19,19 +23,6 @@ import type {
   TaskStatus,
   UpdatedBy,
 } from "@concentray/contracts";
-
-export interface NoteAttachmentMeta {
-  kind?: "image" | "video" | "text" | "csv" | "file";
-  filename?: string;
-  mime_type?: string;
-  size_bytes?: number;
-  sha256?: string;
-  uploaded_at?: string;
-  preview_text?: string;
-  preview_link?: string;
-  download_link?: string;
-  drive_file_id?: string;
-}
 
 export interface Task {
   id: string;
@@ -42,8 +33,8 @@ export interface Task {
   executionMode: TaskExecutionMode;
   contextLink: string | null;
   aiUrgency: number;
-  inputRequest: InputRequest | Record<string, unknown> | null;
-  inputResponse: Record<string, unknown> | null;
+  inputRequest: InputRequest | null;
+  inputResponse: InputResponse | null;
   activeRunId: string | null;
   checkInRequestedAt: string | null;
   checkInRequestedBy: UpdatedBy | null;
@@ -58,7 +49,7 @@ export interface Note {
   author: UpdatedBy;
   kind: NoteKind;
   content: string;
-  attachment: NoteAttachmentMeta | Record<string, unknown> | null;
+  attachment: AttachmentMeta | null;
   createdAt: string;
 }
 

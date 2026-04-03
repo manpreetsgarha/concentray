@@ -205,3 +205,109 @@ def test_local_api_notes_round_trip_and_emit_activity(tmp_path: Path, monkeypatc
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_local_api_returns_json_errors_for_bad_requests(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        store = tmp_path / "default.json"
+        _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
+        _request(base_url, "POST", "/tasks", {"title": "Guard bad requests", "assignee": "ai", "updated_by": "human"})
+
+        try:
+            bad_json_request = urllib.request.Request(
+                f"{base_url}/tasks",
+                data=b"{bad json",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(bad_json_request)
+            assert False, "Expected malformed JSON to fail"
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            assert exc.code == 400
+            assert payload["ok"] is False
+            assert "invalid json body" in payload["error"].lower()
+
+        try:
+            urllib.request.urlopen(f"{base_url}/tasks?status=bogus")
+            assert False, "Expected invalid enum filter to fail"
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            assert exc.code == 400
+            assert payload["ok"] is False
+            assert "status must be one of" in payload["error"].lower()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_respond_endpoint_unblocks_task(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        store = tmp_path / "default.json"
+        _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
+        _, created = _request(
+            base_url,
+            "POST",
+            "/tasks",
+            {
+                "title": "Wait for approval",
+                "assignee": "human",
+                "status": "blocked",
+                "updated_by": "human",
+                "input_request": {
+                    "schema_version": "1.0",
+                    "request_id": "req-1",
+                    "type": "approve_reject",
+                    "prompt": "Ship the release?",
+                    "required": True,
+                    "created_at": "2026-03-03T10:00:00+00:00",
+                    "approve_label": "Ship",
+                    "reject_label": "Hold",
+                },
+            },
+        )
+        task_id = created["task"]["id"]
+
+        status, responded = _request(
+            base_url,
+            "POST",
+            f"/tasks/{task_id}/respond",
+            {"updated_by": "human", "response": {"type": "approve_reject", "approved": True}},
+        )
+        assert status == 200
+        assert responded["task"]["status"] == "pending"
+        assert responded["task"]["assignee"] == "ai"
+        assert responded["task"]["input_request"] is None
+        assert responded["task"]["input_response"]["approved"] is True
+        assert responded["active_run"] is None
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

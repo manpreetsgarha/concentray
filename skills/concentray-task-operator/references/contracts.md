@@ -61,7 +61,7 @@ Choice request:
   --ai-urgency 5 \
   --runtime codex \
   --worker-id codex:session:$(hostname -s):main \
-  --input-request '{"schema_version":"1.0","type":"choice","options":["main","staging"]}' \
+  --input-request '{"schema_version":"1.0","request_id":"req-choice","type":"choice","prompt":"Choose the release lane.","required":true,"created_at":"2026-03-03T10:00:00+00:00","options":["main","staging"]}' \
   --json
 ```
 
@@ -73,7 +73,7 @@ Approve/reject request:
   --assignee human \
   --runtime codex \
   --worker-id codex:session:$(hostname -s):main \
-  --input-request '{"schema_version":"1.0","type":"approve_reject","prompt":"Ship this version?"}' \
+  --input-request '{"schema_version":"1.0","request_id":"req-approve","type":"approve_reject","prompt":"Ship this version?","required":true,"created_at":"2026-03-03T10:00:00+00:00","approve_label":"Ship","reject_label":"Hold"}' \
   --json
 ```
 
@@ -85,7 +85,7 @@ Text input request:
   --assignee human \
   --runtime codex \
   --worker-id codex:session:$(hostname -s):main \
-  --input-request '{"schema_version":"1.0","type":"text_input","prompt":"Provide the exact company tagline."}' \
+  --input-request '{"schema_version":"1.0","request_id":"req-text","type":"text_input","prompt":"Provide the exact company tagline.","required":true,"created_at":"2026-03-03T10:00:00+00:00","max_length":200}' \
   --json
 ```
 
@@ -97,7 +97,15 @@ File or photo request:
   --assignee human \
   --runtime codex \
   --worker-id codex:session:$(hostname -s):main \
-  --input-request '{"schema_version":"1.0","type":"file_or_photo","prompt":"Upload the receipt image."}' \
+  --input-request '{"schema_version":"1.0","request_id":"req-file","type":"file_or_photo","prompt":"Upload the receipt image.","required":true,"created_at":"2026-03-03T10:00:00+00:00","accept":["image/*"],"max_files":1,"max_size_mb":10}' \
+  --json
+```
+
+Human response:
+
+```bash
+./scripts/concentray task respond <task_id> \
+  --response '{"type":"choice","selections":["main"]}' \
   --json
 ```
 

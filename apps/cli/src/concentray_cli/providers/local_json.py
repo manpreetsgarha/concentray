@@ -21,7 +21,11 @@ from concentray_cli.models import (
     UpdatedBy,
     heartbeat_is_stale,
     iso_now,
+    normalize_attachment_metadata,
+    normalize_input_request,
+    normalize_input_response,
     parse_iso,
+    summarize_input_response,
     validate_worker_id,
 )
 from concentray_cli.providers.base import Provider
@@ -204,6 +208,12 @@ class LocalJsonProvider(Provider):
                 return run
         return None
 
+    def _assert_blocker_state(self, task: Task) -> None:
+        if task.input_request is None:
+            return
+        if task.status != TaskStatus.BLOCKED or task.assignee != Assignee.HUMAN:
+            raise ValueError("input_request requires status='blocked' and assignee='human'")
+
     def _assert_worker_claim(
         self,
         store: Store,
@@ -368,20 +378,38 @@ class LocalJsonProvider(Provider):
         with self._store_lock():
             store = self._load_locked()
             now = iso_now()
+            input_request = normalize_input_request(payload.get("input_request"), created_at=now)
+            input_response = (
+                normalize_input_response(input_request, payload.get("input_response"))
+                if payload.get("input_response") is not None
+                else None
+            )
+            status = TaskStatus(payload.get("status", TaskStatus.PENDING.value))
+            assignee = Assignee(payload.get("assignee", Assignee.AI.value))
+            execution_mode = (
+                TaskExecutionMode(payload["execution_mode"])
+                if payload.get("execution_mode") is not None
+                else (
+                    TaskExecutionMode.SESSION
+                    if assignee == Assignee.HUMAN and input_request is None
+                    else TaskExecutionMode.AUTONOMOUS
+                )
+            )
             task = Task(
                 title=str(payload.get("title", "")).strip() or "Untitled task",
-                status=TaskStatus(payload.get("status", TaskStatus.PENDING.value)),
-                assignee=Assignee(payload.get("assignee", Assignee.AI.value)),
+                status=status,
+                assignee=assignee,
                 target_runtime=Runtime(payload["target_runtime"]) if payload.get("target_runtime") else None,
-                execution_mode=TaskExecutionMode(payload.get("execution_mode", TaskExecutionMode.AUTONOMOUS.value)),
+                execution_mode=execution_mode,
                 ai_urgency=int(payload.get("ai_urgency", 3)),
                 context_link=payload.get("context_link"),
-                input_request=payload.get("input_request"),
-                input_response=payload.get("input_response"),
+                input_request=input_request,
+                input_response=input_response,
                 created_at=now,
                 updated_at=now,
                 updated_by=updated_by,
             )
+            self._assert_blocker_state(task)
             store.tasks.append(task)
             self._append_activity(
                 store,
@@ -428,12 +456,24 @@ class LocalJsonProvider(Provider):
             if "context_link" in patch:
                 updates["context_link"] = str(patch["context_link"]).strip() or None if patch["context_link"] else None
             if "input_request" in patch:
-                updates["input_request"] = patch["input_request"]
+                normalized_input_request = normalize_input_request(patch["input_request"], created_at=now)
+                updates["input_request"] = normalized_input_request
+                if normalized_input_request is not None:
+                    updates["input_response"] = None
             if "input_response" in patch:
-                updates["input_response"] = patch["input_response"]
+                active_request = updates.get("input_request", task.input_request)
+                updates["input_response"] = normalize_input_response(active_request, patch["input_response"])
             if patch.get("clear_check_in"):
                 updates["check_in_requested_at"] = None
                 updates["check_in_requested_by"] = None
+
+            next_assignee = updates.get("assignee", task.assignee)
+            next_input_request = updates.get("input_request", task.input_request)
+            if next_assignee == Assignee.HUMAN and next_input_request is None:
+                if "target_runtime" not in updates:
+                    updates["target_runtime"] = None
+                if "execution_mode" not in updates:
+                    updates["execution_mode"] = TaskExecutionMode.SESSION
 
             updated_task = task.model_copy(
                 update={
@@ -442,6 +482,7 @@ class LocalJsonProvider(Provider):
                     "updated_by": updated_by,
                 }
             )
+            self._assert_blocker_state(updated_task)
 
             active_run = self._current_run(store, task)
             should_end_run = active_run is not None and (
@@ -577,6 +618,98 @@ class LocalJsonProvider(Provider):
             self._save(store)
             return updated_task
 
+    def respond_to_input_request(
+        self,
+        task_id: str,
+        *,
+        updated_by: UpdatedBy,
+        response: Dict[str, Any],
+    ) -> Task:
+        with self._store_lock():
+            store = self._load_locked()
+            task_index, task = self._find_task(store, task_id)
+            normalized_response = normalize_input_response(task.input_request, response)
+            now = iso_now()
+            active_run = self._current_run(store, task)
+
+            updated_task = task.model_copy(
+                update={
+                    "input_request": None,
+                    "input_response": normalized_response,
+                    "status": TaskStatus.PENDING,
+                    "assignee": Assignee.AI,
+                    "active_run_id": None,
+                    "check_in_requested_at": None,
+                    "check_in_requested_by": None,
+                    "updated_at": now,
+                    "updated_by": updated_by,
+                }
+            )
+            store.tasks[task_index] = updated_task
+
+            if active_run is not None:
+                run_index, run = self._find_run(store, active_run.id)
+                store.runs[run_index] = run.model_copy(
+                    update={
+                        "status": RunStatus.ENDED,
+                        "ended_at": now,
+                        "end_reason": "input_responded",
+                    }
+                )
+                self._append_activity(
+                    store,
+                    task_id=task.id,
+                    actor=updated_by,
+                    runtime=run.runtime,
+                    run_id=run.id,
+                    kind="run_ended",
+                    summary="Run ended: input_responded.",
+                    payload={"worker_id": run.worker_id, "end_reason": "input_responded"},
+                    created_at=now,
+                )
+
+            if task.status != updated_task.status:
+                self._append_activity(
+                    store,
+                    task_id=task.id,
+                    actor=updated_by,
+                    runtime=active_run.runtime if active_run else None,
+                    run_id=active_run.id if active_run else None,
+                    kind="status_changed",
+                    summary=f"Status changed from {task.status} to {updated_task.status}.",
+                    payload={"from": task.status, "to": updated_task.status},
+                    created_at=now,
+                )
+            if task.assignee != updated_task.assignee:
+                self._append_activity(
+                    store,
+                    task_id=task.id,
+                    actor=updated_by,
+                    runtime=active_run.runtime if active_run else None,
+                    run_id=active_run.id if active_run else None,
+                    kind="routing_changed",
+                    summary="Task routing updated.",
+                    payload={
+                        "assignee": updated_task.assignee,
+                        "target_runtime": updated_task.target_runtime,
+                        "execution_mode": updated_task.execution_mode,
+                    },
+                    created_at=now,
+                )
+            self._append_activity(
+                store,
+                task_id=task.id,
+                actor=updated_by,
+                runtime=active_run.runtime if active_run else None,
+                run_id=active_run.id if active_run else None,
+                kind="input_responded",
+                summary=summarize_input_response(normalized_response),
+                payload={"input_response": normalized_response},
+                created_at=now,
+            )
+            self._save(store)
+            return updated_task
+
     def add_note(
         self,
         task_id: str,
@@ -589,12 +722,17 @@ class LocalJsonProvider(Provider):
         with self._store_lock():
             store = self._load_locked()
             self._find_task(store, task_id)
+            normalized_attachment = normalize_attachment_metadata(
+                attachment,
+                field="attachment",
+                require_filename=kind == NoteKind.ATTACHMENT.value,
+            )
             note = Note(
                 task_id=task_id,
                 author=author,
                 kind=NoteKind(kind),
                 content=content,
-                attachment=attachment,
+                attachment=normalized_attachment,
             )
             store.notes.append(note)
             self._append_activity(

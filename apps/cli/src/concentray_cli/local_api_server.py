@@ -5,6 +5,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -31,24 +32,43 @@ from concentray_cli.workspace_store import (
 )
 
 
+class BadRequestError(ValueError):
+    pass
+
+
 def _status_from_wire(raw: str) -> TaskStatus:
-    return TaskStatus(str(raw).strip().lower())
+    try:
+        return TaskStatus(str(raw).strip().lower())
+    except ValueError as exc:
+        raise BadRequestError("status must be one of: pending, in_progress, blocked, done") from exc
 
 
 def _assignee_from_wire(raw: str) -> Assignee:
-    return Assignee(str(raw).strip().lower())
+    try:
+        return Assignee(str(raw).strip().lower())
+    except ValueError as exc:
+        raise BadRequestError("assignee must be one of: ai, human") from exc
 
 
 def _execution_mode_from_wire(raw: str) -> TaskExecutionMode:
-    return TaskExecutionMode(str(raw).strip().lower())
+    try:
+        return TaskExecutionMode(str(raw).strip().lower())
+    except ValueError as exc:
+        raise BadRequestError("execution_mode must be one of: autonomous, session") from exc
 
 
 def _runtime_from_wire(raw: str) -> Runtime:
-    return Runtime(str(raw).strip().lower())
+    try:
+        return Runtime(str(raw).strip().lower())
+    except ValueError as exc:
+        raise BadRequestError("runtime must be one of: openclaw, claude, codex") from exc
 
 
 def _updated_by_from_wire(raw: str) -> UpdatedBy:
-    return UpdatedBy(str(raw).strip().lower())
+    try:
+        return UpdatedBy(str(raw).strip().lower())
+    except ValueError as exc:
+        raise BadRequestError("updated_by must be one of: human, ai, system") from exc
 
 
 def _infer_kind(mime_type: str, filename: str) -> str:
@@ -168,6 +188,7 @@ class LocalApiRuntime:
 class LocalApiHandler(BaseHTTPRequestHandler):
     runtime: LocalApiRuntime
     uploads_dir: Path
+    _response_started: bool
 
     def _provider(self) -> Provider:
         return self.runtime.provider()
@@ -178,6 +199,7 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         content_type: str = "application/json",
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> None:
+        self._response_started = True
         self.send_response(status_code)
         self.send_header("Content-Type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -196,8 +218,17 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         size = int(self.headers.get("Content-Length", "0"))
         if size == 0:
             return {}
-        data = self.rfile.read(size).decode("utf-8")
-        return json.loads(data)
+        try:
+            data = self.rfile.read(size).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise BadRequestError("Request body must be valid UTF-8 JSON") from exc
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError as exc:
+            raise BadRequestError(f"Invalid JSON body: {exc.msg}") from exc
+        if not isinstance(parsed, dict):
+            raise BadRequestError("JSON body must be an object")
+        return parsed
 
     def _route_task_path(self, path: str) -> Tuple[Optional[str], Optional[str]]:
         parts = [part for part in path.split("/") if part]
@@ -211,10 +242,28 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         host = self.headers.get("Host") or f"{self.server.server_address[0]}:{self.server.server_address[1]}"
         return f"http://{host}"
 
+    def _safe_execute(self, handler: Callable[[], None]) -> None:
+        self._response_started = False
+        try:
+            handler()
+        except BadRequestError as exc:
+            if not self._response_started:
+                self._send(400, {"ok": False, "error": str(exc)})
+        except Exception:
+            self.log_error("Unhandled local API error:\n%s", traceback.format_exc())
+            if not self._response_started:
+                self._send(500, {"ok": False, "error": "Internal server error"})
+
     def do_OPTIONS(self) -> None:  # noqa: N802
+        self._safe_execute(self._handle_options)
+
+    def _handle_options(self) -> None:
         self._set_headers(200)
 
     def do_GET(self) -> None:  # noqa: N802
+        self._safe_execute(self._handle_get)
+
+    def _handle_get(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -250,17 +299,20 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             status = (query.get("status") or [None])[0]
             execution_mode = (query.get("execution_mode") or [None])[0]
             target_runtime = (query.get("target_runtime") or [None])[0]
+            assignee_filter = _assignee_from_wire(assignee) if assignee else None
+            status_filter = _status_from_wire(status) if status else None
+            execution_mode_filter = _execution_mode_from_wire(execution_mode) if execution_mode else None
+            target_runtime_filter = _runtime_from_wire(target_runtime) if target_runtime else None
 
             tasks = self._provider().list_tasks()
-            if assignee:
-                tasks = [task for task in tasks if task.assignee == _assignee_from_wire(assignee)]
-            if status:
-                tasks = [task for task in tasks if task.status == _status_from_wire(status)]
-            if execution_mode:
-                tasks = [task for task in tasks if task.execution_mode == _execution_mode_from_wire(execution_mode)]
-            if target_runtime:
-                runtime = _runtime_from_wire(target_runtime)
-                tasks = [task for task in tasks if task.target_runtime == runtime]
+            if assignee_filter:
+                tasks = [task for task in tasks if task.assignee == assignee_filter]
+            if status_filter:
+                tasks = [task for task in tasks if task.status == status_filter]
+            if execution_mode_filter:
+                tasks = [task for task in tasks if task.execution_mode == execution_mode_filter]
+            if target_runtime_filter:
+                tasks = [task for task in tasks if task.target_runtime == target_runtime_filter]
 
             self._send(200, {"ok": True, "tasks": [task.model_dump() for task in tasks]})
             return
@@ -325,6 +377,9 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         self._send(404, {"ok": False, "error": "Not found"})
 
     def do_POST(self) -> None:  # noqa: N802
+        self._safe_execute(self._handle_post)
+
+    def _handle_post(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
         payload = self._read_json()
@@ -493,6 +548,38 @@ class LocalApiHandler(BaseHTTPRequestHandler):
                 self._send(201, {"ok": True, "activity": entry.model_dump()})
                 return
 
+            if suffix == "respond":
+                try:
+                    response_payload = payload.get("response")
+                    if not isinstance(response_payload, dict):
+                        raise BadRequestError("response must be a JSON object")
+                    task = self._provider().respond_to_input_request(
+                        task_id,
+                        updated_by=_updated_by_from_wire(str(payload.get("updated_by", "human"))),
+                        response=response_payload,
+                    )
+                    active_run = self._provider().get_active_run(task_id)
+                except (BadRequestError, ValueError, TypeError) as exc:
+                    self._send(400, {"ok": False, "error": str(exc)})
+                    return
+                self._send(
+                    200,
+                    {
+                        "ok": True,
+                        "task": task.model_dump(),
+                        "active_run": active_run.model_dump() if active_run else None,
+                        "pending_check_in": (
+                            {
+                                "requested_at": task.check_in_requested_at,
+                                "requested_by": task.check_in_requested_by,
+                            }
+                            if task.check_in_requested_at
+                            else None
+                        ),
+                    },
+                )
+                return
+
             if suffix == "heartbeat":
                 try:
                     run = self._provider().heartbeat(
@@ -552,6 +639,9 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         self._send(404, {"ok": False, "error": "Not found"})
 
     def do_PATCH(self) -> None:  # noqa: N802
+        self._safe_execute(self._handle_patch)
+
+    def _handle_patch(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -607,6 +697,9 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         )
 
     def do_DELETE(self) -> None:  # noqa: N802
+        self._safe_execute(self._handle_delete)
+
+    def _handle_delete(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
 

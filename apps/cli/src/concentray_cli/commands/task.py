@@ -252,6 +252,34 @@ def task_request_check_in(
     )
 
 
+@task_app.command("respond")
+def task_respond(
+    task_id: str,
+    response: str = typer.Option(..., "--response"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    provider = make_provider()
+    parsed_response = parse_json_object_option(response, option_name="--response")
+    if parsed_response is None:
+        raise typer.BadParameter("--response must be a JSON object")
+
+    task = provider.respond_to_input_request(
+        task_id,
+        updated_by=parse_updated_by(os.getenv("TM_UPDATED_BY", "human")),
+        response=parsed_response,
+    )
+    active_run = provider.get_active_run(task_id)
+    emit(
+        {
+            "ok": True,
+            "task": task.model_dump(),
+            "active_run": active_run.model_dump() if active_run else None,
+            "pending_check_in": _pending_check_in(task),
+        },
+        as_json,
+    )
+
+
 @task_app.command("delete")
 def task_delete(
     task_id: str,

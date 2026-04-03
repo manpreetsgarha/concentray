@@ -57,6 +57,8 @@ Concentray v2 is intentionally local-first.
 Source of truth:
 - local JSON task store
 
+The local JSON store is an internal development datastore for v2. Schema compatibility across versions is not guaranteed.
+
 Human side:
 - Expo web UI
 - local API
@@ -365,7 +367,7 @@ Typical agent loop:
 4. do the work
 5. heartbeat during long work and append activity
 6. if blocked, update task with a focused `input_request`
-7. human responds in the UI
+7. human responds in the UI or with `task respond`
 8. agent resumes
 9. mark task done
 
@@ -375,8 +377,18 @@ Example blocked update:
 ./scripts/concentray task update <task_id> \
   --status blocked \
   --assignee human \
-  --urgency 5 \
-  --input-request '{"schema_version":"1.0","type":"choice","options":["main","staging"]}' \
+  --ai-urgency 5 \
+  --runtime codex \
+  --worker-id codex:session:$(hostname -s):main \
+  --input-request '{"schema_version":"1.0","request_id":"req-lane","type":"choice","prompt":"Choose the release lane.","required":true,"created_at":"2026-03-03T10:00:00+00:00","options":["main","staging"]}' \
+  --json
+```
+
+Human unblock response:
+
+```bash
+./scripts/concentray task respond <task_id> \
+  --response '{"type":"choice","selections":["main"]}' \
   --json
 ```
 
@@ -385,6 +397,12 @@ Supported practical unblock request types:
 - `approve_reject`
 - `text_input`
 - `file_or_photo`
+
+Response payload shapes:
+- `choice` -> `{"type":"choice","selections":["main"]}`
+- `approve_reject` -> `{"type":"approve_reject","approved":true}`
+- `text_input` -> `{"type":"text_input","value":"Exact requested text"}`
+- `file_or_photo` -> `{"type":"file_or_photo","files":[{...attachment metadata...}]}`
 
 Worker claim behavior:
 - `worker_id` identifies which agent instance currently owns the task

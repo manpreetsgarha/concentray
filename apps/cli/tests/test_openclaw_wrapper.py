@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -127,10 +128,25 @@ def test_openclaw_wrapper_round_trip(tmp_path: Path) -> None:
     assert task_payload["task"]["status"] == "blocked"
     assert any(entry["kind"] == "tool_call" for entry in task_payload["activity"])
 
-    context = invoke_tool(repo_root, env, "context_export", {"task_id": "task-wrapper-1", "format": "json"})
-    assert context.returncode == 0, context.stderr
-    context_payload = json.loads(context.stdout)
-    assert context_payload["context"]["task"]["id"] == "task-wrapper-1"
+    first_context = invoke_tool(repo_root, env, "context_export", {"task_id": "task-wrapper-1", "format": "json"})
+    assert first_context.returncode == 0, first_context.stderr
+    first_context_payload = json.loads(first_context.stdout)
+    assert first_context_payload["context"]["task"]["id"] == "task-wrapper-1"
+
+    time.sleep(1.1)
+
+    second_context = invoke_tool(repo_root, env, "context_export", {"task_id": "task-wrapper-1", "format": "json"})
+    assert second_context.returncode == 0, second_context.stderr
+    second_context_payload = json.loads(second_context.stdout)
+
+    assert (
+        first_context_payload["context"]["timestamps"]["task_updated_at"]
+        == second_context_payload["context"]["timestamps"]["task_updated_at"]
+    )
+    assert (
+        first_context_payload["context"]["timestamps"]["generated_at"]
+        != second_context_payload["context"]["timestamps"]["generated_at"]
+    )
 
 
 def test_openclaw_wrapper_rejects_invalid_payload(tmp_path: Path) -> None:
