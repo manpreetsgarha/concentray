@@ -146,8 +146,12 @@ def terminate_background_pid(pid: Optional[int]) -> bool:
         return False
 
     assert pid is not None
+
+    def _kill_group(sig: signal.Signals) -> None:
+        os.killpg(os.getpgid(pid), sig)
+
     try:
-        os.killpg(pid, signal.SIGTERM)
+        _kill_group(signal.SIGTERM)
     except ProcessLookupError:
         return False
     except OSError:
@@ -160,7 +164,7 @@ def terminate_background_pid(pid: Optional[int]) -> bool:
         time.sleep(0.1)
 
     try:
-        os.killpg(pid, signal.SIGKILL)
+        _kill_group(signal.SIGKILL)
     except ProcessLookupError:
         return True
     except OSError:

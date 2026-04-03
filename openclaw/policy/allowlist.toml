@@ -8,8 +8,10 @@ allowed = [
 
 [commands]
 allowed_prefixes = [
+  ["python3", "-m", "concentray_cli.main"],
+  ["python", "-m", "concentray_cli.main"],
   ["python3", "-m", "concentray_cli.cli_app"],
-  ["python3.11", "-m", "concentray_cli.cli_app"],
+  ["python", "-m", "concentray_cli.cli_app"],
   ["bash", "openclaw/plugin_tools/run_tool.sh"],
   ["__REPO_ROOT__/scripts/concentray"],
   ["bash", "__REPO_ROOT__/scripts/concentray"]

@@ -9,5 +9,5 @@
     "stderr": { "type": "string" }
   },
   "required": ["ok", "exit_code", "stdout", "stderr"],
-  "additionalProperties": true
+  "additionalProperties": false
 }

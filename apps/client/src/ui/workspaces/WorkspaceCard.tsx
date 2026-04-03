@@ -9,26 +9,17 @@ import { FONT_SANS } from "../theme";
 interface WorkspaceCardProps {
   workspace: WorkspaceSummary;
   isSelected: boolean;
-  collapsed?: boolean;
-  canDelete?: boolean;
   busy?: boolean;
   onPress: () => void;
-  onDelete?: () => void;
 }
 
 export function WorkspaceCard(props: WorkspaceCardProps) {
-  const { workspace, isSelected, collapsed = false, canDelete = false, busy = false, onPress, onDelete } = props;
+  const { workspace, isSelected, busy = false, onPress } = props;
   const summary = isSelected ? "Current lane" : workspace.store ? "Local workspace" : "Workspace";
   const accent = workspaceAccent(workspace.name);
 
   return (
-    <View
-      style={[
-        styles.workspaceCard,
-        isSelected ? styles.workspaceCardActive : null,
-        collapsed ? styles.workspaceCardCollapsed : null
-      ]}
-    >
+    <View style={[styles.workspaceCard, isSelected ? styles.workspaceCardActive : null]}>
       <Pressable style={styles.workspaceCardPressable} onPress={onPress}>
         <View
           style={[
@@ -39,29 +30,23 @@ export function WorkspaceCard(props: WorkspaceCardProps) {
         >
           <View style={[styles.workspaceGlyphDot, { backgroundColor: accent }]} />
         </View>
-        {!collapsed ? (
-          <View style={styles.workspaceCardBody}>
-            <View style={styles.workspaceCardTop}>
-              <Text style={styles.workspaceName}>{workspace.name}</Text>
-              <View style={[styles.workspaceStatePill, workspace.active ? styles.workspaceStatePillActive : null]}>
-                <Text style={styles.workspaceStateText}>{workspace.active ? "Live" : "Idle"}</Text>
-              </View>
+        <View style={styles.workspaceCardBody}>
+          <View style={styles.workspaceCardTop}>
+            <Text style={styles.workspaceName}>{workspace.name}</Text>
+            <View style={[styles.workspaceStatePill, workspace.active ? styles.workspaceStatePillActive : null]}>
+              <Text style={styles.workspaceStateText}>{workspace.active ? "Live" : "Idle"}</Text>
             </View>
-            <Text style={styles.workspaceStore} numberOfLines={1}>
-              {summary}
-            </Text>
           </View>
-        ) : null}
+          <Text style={styles.workspaceStore} numberOfLines={1}>
+            {summary}
+          </Text>
+          {busy ? (
+            <View style={styles.workspaceBusyIcon}>
+              <Feather name="loader" size={13} color="#526080" />
+            </View>
+          ) : null}
+        </View>
       </Pressable>
-      {!collapsed && canDelete && onDelete ? (
-        <Pressable
-          style={[styles.workspaceDeleteButton, busy ? styles.buttonDisabled : null]}
-          onPress={onDelete}
-          disabled={busy}
-        >
-          <Feather name="trash-2" size={13} color="#526080" />
-        </Pressable>
-      ) : null}
     </View>
   );
 }
@@ -87,10 +72,6 @@ const styles = StyleSheet.create({
   workspaceCardActive: {
     backgroundColor: "rgba(0,212,170,0.06)",
     borderColor: "rgba(0,212,170,0.14)"
-  },
-  workspaceCardCollapsed: {
-    justifyContent: "center",
-    paddingHorizontal: 8
   },
   workspaceGlyph: {
     minWidth: 32,
@@ -146,17 +127,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: FONT_SANS
   },
-  workspaceDeleteButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(99,130,190,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(99,130,190,0.08)"
-  },
-  buttonDisabled: {
-    opacity: 0.45
+  workspaceBusyIcon: {
+    marginTop: 2
   }
 });

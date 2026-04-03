@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import mimetypes
 import os
 import traceback
@@ -22,6 +23,7 @@ from concentray_cli.models import (
     UpdatedBy,
     iso_now,
 )
+from concentray_cli.paths import canonical_store_path
 from concentray_cli.providers.base import Provider
 from concentray_cli.providers.local_json import LocalJsonProvider
 from concentray_cli.workspace_store import (
@@ -34,6 +36,13 @@ from concentray_cli.workspace_store import (
 
 class BadRequestError(ValueError):
     pass
+
+
+class PayloadTooLargeError(BadRequestError):
+    pass
+
+
+DEFAULT_MAX_JSON_BODY_BYTES = 1024 * 1024
 
 
 def _status_from_wire(raw: str) -> TaskStatus:
@@ -103,6 +112,11 @@ def _max_upload_bytes() -> int:
     return max(mb, 1) * 1024 * 1024
 
 
+def _max_upload_request_bytes() -> int:
+    # Base64 expands the raw file size by roughly 4/3. Leave extra room for JSON keys.
+    return math.ceil(_max_upload_bytes() * 4 / 3) + 1024 * 1024
+
+
 def _build_preview_text(content: bytes, kind: str) -> Optional[str]:
     if kind not in {"text", "csv"}:
         return None
@@ -149,7 +163,11 @@ class LocalApiRuntime:
         if not workspace_name:
             raise ValueError("Workspace name is required")
 
-        store_path = Path(store).expanduser() if store else suggested_workspace_store(workspace_name)
+        store_path = (
+            canonical_store_path(Path(store))
+            if store
+            else canonical_store_path(suggested_workspace_store(workspace_name))
+        )
         LocalJsonProvider(store_path).list_tasks()
 
         payload = load_workspace_config()
@@ -202,6 +220,8 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         self._response_started = True
         self.send_response(status_code)
         self.send_header("Content-Type", content_type)
+        # The shared local API is intentionally unauthenticated and local-first.
+        # Wildcard CORS is an explicit developer tradeoff for same-machine UI/tool access.
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
@@ -214,10 +234,21 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         self._set_headers(status_code)
         self.wfile.write(json.dumps(payload).encode("utf-8"))
 
-    def _read_json(self) -> Dict[str, Any]:
-        size = int(self.headers.get("Content-Length", "0"))
+    def _send_empty(self, status_code: int) -> None:
+        self._set_headers(status_code, extra_headers={"Content-Length": "0"})
+
+    def _read_json(self, *, max_bytes: int = DEFAULT_MAX_JSON_BODY_BYTES) -> Dict[str, Any]:
+        raw_size = self.headers.get("Content-Length", "0")
+        try:
+            size = int(raw_size)
+        except ValueError as exc:
+            raise BadRequestError("Content-Length must be a valid integer") from exc
+        if size < 0:
+            raise BadRequestError("Content-Length must be non-negative")
         if size == 0:
             return {}
+        if size > max_bytes:
+            raise PayloadTooLargeError(f"Request body exceeds limit of {max_bytes} bytes")
         try:
             data = self.rfile.read(size).decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -242,10 +273,33 @@ class LocalApiHandler(BaseHTTPRequestHandler):
         host = self.headers.get("Host") or f"{self.server.server_address[0]}:{self.server.server_address[1]}"
         return f"http://{host}"
 
+    def _resolve_upload_path(self, requested_name: str) -> Path:
+        uploads_root = self.uploads_dir.resolve()
+        unresolved = self.uploads_dir / requested_name
+        try:
+            candidate = unresolved.resolve(strict=True)
+        except FileNotFoundError as exc:
+            candidate = unresolved.resolve(strict=False)
+            try:
+                candidate.relative_to(uploads_root)
+            except ValueError as inner_exc:
+                raise BadRequestError("Invalid file path") from inner_exc
+            raise BadRequestError("File not found") from exc
+        try:
+            candidate.relative_to(uploads_root)
+        except ValueError as exc:
+            raise BadRequestError("Invalid file path") from exc
+        if not candidate.is_file():
+            raise BadRequestError("File not found")
+        return candidate
+
     def _safe_execute(self, handler: Callable[[], None]) -> None:
         self._response_started = False
         try:
             handler()
+        except PayloadTooLargeError as exc:
+            if not self._response_started:
+                self._send(413, {"ok": False, "error": str(exc)})
         except BadRequestError as exc:
             if not self._response_started:
                 self._send(400, {"ok": False, "error": str(exc)})
@@ -277,9 +331,14 @@ class LocalApiHandler(BaseHTTPRequestHandler):
 
         if path.startswith("/files/"):
             requested_name = unquote(path.split("/files/", 1)[1])
-            filename = Path(requested_name).name
-            file_path = self.uploads_dir / filename
-            if not file_path.exists() or not file_path.is_file():
+            try:
+                file_path = self._resolve_upload_path(requested_name)
+            except BadRequestError as exc:
+                error = str(exc)
+                status_code = 404 if error == "File not found" else 400
+                self._send(status_code, {"ok": False, "error": error})
+                return
+            if not file_path.exists():
                 self._send(404, {"ok": False, "error": "File not found"})
                 return
             mime_type, _ = mimetypes.guess_type(str(file_path))
@@ -382,7 +441,8 @@ class LocalApiHandler(BaseHTTPRequestHandler):
     def _handle_post(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
-        payload = self._read_json()
+        payload_limit = _max_upload_request_bytes() if path == "/files" else DEFAULT_MAX_JSON_BODY_BYTES
+        payload = self._read_json(max_bytes=payload_limit)
 
         if path == "/workspaces":
             try:
@@ -713,7 +773,7 @@ class LocalApiHandler(BaseHTTPRequestHandler):
             if not deleted:
                 self._send(404, {"ok": False, "error": f"Task '{task_id}' not found"})
                 return
-            self._send(200, {"ok": True, "deleted": True, "task_id": task_id})
+            self._send_empty(204)
             return
 
         if path.startswith("/workspaces/"):

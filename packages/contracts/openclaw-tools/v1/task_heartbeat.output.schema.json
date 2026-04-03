@@ -1,5 +1,5 @@
 {
-  "$id": "task_heartbeat.output.v2",
+  "$id": "task_heartbeat.output.v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

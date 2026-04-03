@@ -6,12 +6,13 @@
   "scripts": {
     "bootstrap": "bash scripts/bootstrap/bootstrap_all.sh",
     "bootstrap:openclaw": "bash scripts/bootstrap/bootstrap_openclaw.sh",
+    "build:contracts": "pnpm --filter @concentray/contracts build",
     "cli": "bash scripts/concentray",
     "cli:compat": "bash scripts/ctray",
-    "lint": "pnpm exec biome lint apps/client packages && cd apps/cli && python3.11 -m ruff check src tests",
-    "format": "pnpm exec biome format --write apps/client packages && cd apps/cli && python3.11 -m ruff format src tests",
-    "typecheck": "pnpm --filter @concentray/contracts typecheck && pnpm --filter @concentray/client-data typecheck && pnpm --filter @concentray/client typecheck",
-    "test": "pnpm --filter @concentray/client test && pnpm --filter @concentray/client-data test && cd apps/cli && python3.11 -m pytest -q",
+    "lint": "pnpm exec biome lint apps/client packages && cd apps/cli && python3 -m ruff check src tests",
+    "format": "pnpm exec biome format --write apps/client packages && cd apps/cli && python3 -m ruff format src tests",
+    "typecheck": "pnpm --filter @concentray/contracts typecheck && pnpm --filter @concentray/client typecheck",
+    "test": "pnpm build:contracts && pnpm --filter @concentray/client test && cd apps/cli && python3 -m pytest -q",
     "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "devDependencies": {

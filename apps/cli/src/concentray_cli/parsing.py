@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Dict, List, Optional
 
 import typer
 
-from concentray_cli.models import Assignee, Runtime, TaskExecutionMode, TaskStatus, UpdatedBy
+from concentray_cli.models import Assignee, Runtime, TaskExecutionMode, TaskStatus, UpdatedBy, WORKER_ID_PATTERN
 
 
 STATUS_MAP = {
@@ -37,9 +36,6 @@ UPDATED_BY_MAP = {
     "human": UpdatedBy.HUMAN,
     "system": UpdatedBy.SYSTEM,
 }
-
-WORKER_ID_PATTERN = re.compile(r"^[a-z0-9._:-]+$")
-
 
 def parse_statuses(raw: str) -> List[TaskStatus]:
     result: List[TaskStatus] = []
@@ -104,7 +100,7 @@ def normalize_worker_id(raw: Optional[str]) -> Optional[str]:
         return None
     if not WORKER_ID_PATTERN.fullmatch(value):
         raise typer.BadParameter("worker_id may only contain lowercase letters, numbers, '.', '_', ':', and '-'")
-    return value or None
+    return value
 
 
 def parse_json_object_option(raw: Optional[str], *, option_name: str) -> Optional[Dict[str, Any]]:

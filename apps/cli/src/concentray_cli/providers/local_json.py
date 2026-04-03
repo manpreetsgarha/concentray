@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -9,6 +11,7 @@ from concentray_cli.models import (
     Activity,
     Assignee,
     DEFAULT_LEASE_SECONDS,
+    LOCAL_STORE_SCHEMA_VERSION,
     Note,
     NoteKind,
     Run,
@@ -57,15 +60,41 @@ class LocalJsonProvider(Provider):
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _load(self) -> Store:
-        payload = json.loads(self.store_path.read_text() or "{}")
-        if not payload:
-            return Store()
+        raw_payload = self.store_path.read_text()
+        if not raw_payload.strip():
+            raise ValueError(
+                f"Unsupported local store schema. Expected {LOCAL_STORE_SCHEMA_VERSION}, "
+                "reinitialize the workspace with `concentray init`."
+            )
+        payload = json.loads(raw_payload)
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"Unsupported local store schema. Expected {LOCAL_STORE_SCHEMA_VERSION}, "
+                "reinitialize the workspace with `concentray init`."
+            )
+        schema_version = payload.get("schema_version")
+        if schema_version != LOCAL_STORE_SCHEMA_VERSION:
+            raise ValueError(
+                f"Unsupported local store schema. Expected {LOCAL_STORE_SCHEMA_VERSION}, "
+                "reinitialize the workspace with `concentray init`."
+            )
         return Store.model_validate(payload)
 
     def _save(self, store: Store) -> None:
-        temp = self.store_path.with_suffix(".tmp")
-        temp.write_text(store.model_dump_json(indent=2))
-        temp.replace(self.store_path)
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f"{self.store_path.name}.",
+            suffix=".tmp",
+            dir=self.store_path.parent,
+            text=True,
+        )
+        temp_path = Path(temp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(store.model_dump_json(indent=2))
+            temp_path.replace(self.store_path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _task_lookup(self, store: Store) -> Dict[str, Task]:
         return {task.id: task for task in store.tasks}
@@ -213,6 +242,9 @@ class LocalJsonProvider(Provider):
             return
         if task.status != TaskStatus.BLOCKED or task.assignee != Assignee.HUMAN:
             raise ValueError("input_request requires status='blocked' and assignee='human'")
+
+    def _updated_task(self, task: Task, updates: Dict[str, Any]) -> Task:
+        return Task.model_validate({**task.model_dump(), **updates})
 
     def _assert_worker_claim(
         self,
@@ -396,7 +428,7 @@ class LocalJsonProvider(Provider):
                 )
             )
             task = Task(
-                title=str(payload.get("title", "")).strip() or "Untitled task",
+                title=str(payload.get("title", "")),
                 status=status,
                 assignee=assignee,
                 target_runtime=Runtime(payload["target_runtime"]) if payload.get("target_runtime") else None,
@@ -474,17 +506,22 @@ class LocalJsonProvider(Provider):
                     updates["target_runtime"] = None
                 if "execution_mode" not in updates:
                     updates["execution_mode"] = TaskExecutionMode.SESSION
+            elif next_assignee == Assignee.AI and "execution_mode" not in updates:
+                updates["execution_mode"] = None
 
-            updated_task = task.model_copy(
-                update={
+            updated_task = self._updated_task(
+                task,
+                {
                     **updates,
                     "updated_at": now,
                     "updated_by": updated_by,
-                }
+                },
             )
             self._assert_blocker_state(updated_task)
 
             active_run = self._current_run(store, task)
+            activity_runtime = active_run.runtime if active_run is not None else runtime
+            activity_run_id = active_run.id if active_run is not None else updated_task.active_run_id
             should_end_run = active_run is not None and (
                 updated_task.status in {TaskStatus.BLOCKED, TaskStatus.DONE}
                 or updated_task.assignee != Assignee.AI
@@ -521,8 +558,8 @@ class LocalJsonProvider(Provider):
                     store,
                     task_id=task.id,
                     actor=updated_by,
-                    runtime=runtime,
-                    run_id=updated_task.active_run_id,
+                    runtime=activity_runtime,
+                    run_id=activity_run_id,
                     kind="status_changed",
                     summary=f"Status changed from {task.status} to {updated_task.status}.",
                     payload={"from": task.status, "to": updated_task.status},
@@ -533,8 +570,8 @@ class LocalJsonProvider(Provider):
                     store,
                     task_id=task.id,
                     actor=updated_by,
-                    runtime=runtime,
-                    run_id=updated_task.active_run_id,
+                    runtime=activity_runtime,
+                    run_id=activity_run_id,
                     kind="routing_changed",
                     summary="Task routing updated.",
                     payload={
@@ -549,8 +586,8 @@ class LocalJsonProvider(Provider):
                     store,
                     task_id=task.id,
                     actor=updated_by,
-                    runtime=runtime,
-                    run_id=updated_task.active_run_id,
+                    runtime=activity_runtime,
+                    run_id=activity_run_id,
                     kind="input_request_updated",
                     summary="Input request updated.",
                     payload={"input_request": updated_task.input_request},
@@ -561,8 +598,8 @@ class LocalJsonProvider(Provider):
                     store,
                     task_id=task.id,
                     actor=updated_by,
-                    runtime=runtime,
-                    run_id=updated_task.active_run_id,
+                    runtime=activity_runtime,
+                    run_id=activity_run_id,
                     kind="input_response_updated",
                     summary="Input response updated.",
                     payload={"input_response": updated_task.input_response},
@@ -632,18 +669,20 @@ class LocalJsonProvider(Provider):
             now = iso_now()
             active_run = self._current_run(store, task)
 
-            updated_task = task.model_copy(
-                update={
+            updated_task = self._updated_task(
+                task,
+                {
                     "input_request": None,
                     "input_response": normalized_response,
                     "status": TaskStatus.PENDING,
                     "assignee": Assignee.AI,
+                    "execution_mode": None,
                     "active_run_id": None,
                     "check_in_requested_at": None,
                     "check_in_requested_by": None,
                     "updated_at": now,
                     "updated_by": updated_by,
-                }
+                },
             )
             store.tasks[task_index] = updated_task
 

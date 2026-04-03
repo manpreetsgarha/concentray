@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import subprocess
@@ -11,6 +12,7 @@ def seed_store(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
+                "schema_version": "1.0",
                 "tasks": [
                     {
                         "id": "task-wrapper-1",
@@ -53,6 +55,18 @@ def invoke_tool(repo_root: Path, env: dict[str, str], tool: str, payload: dict[s
         env=env,
         cwd=repo_root,
     )
+
+
+def load_invoke_tool_module(repo_root: Path):
+    spec = importlib.util.spec_from_file_location(
+        "test_invoke_tool_module",
+        repo_root / "openclaw" / "plugin_tools" / "invoke_tool.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Failed to load invoke_tool module")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_openclaw_wrapper_round_trip(tmp_path: Path) -> None:
@@ -132,12 +146,25 @@ def test_openclaw_wrapper_round_trip(tmp_path: Path) -> None:
     assert first_context.returncode == 0, first_context.stderr
     first_context_payload = json.loads(first_context.stdout)
     assert first_context_payload["context"]["task"]["id"] == "task-wrapper-1"
+    assert first_context_payload["context"]["schema_version"] == "2.0"
+    assert first_context_payload["context"]["context"]["title"] == "Wrapper test"
+    assert first_context_payload["context"]["input_request"]["request_id"] == "req-1"
+    assert first_context_payload["context"]["input_response"] is None
+    assert first_context_payload["context"]["pending_check_in"] is None
+    assert first_context_payload["context"]["constraints"]["status"] == "blocked"
 
-    time.sleep(1.1)
-
-    second_context = invoke_tool(repo_root, env, "context_export", {"task_id": "task-wrapper-1", "format": "json"})
-    assert second_context.returncode == 0, second_context.stderr
-    second_context_payload = json.loads(second_context.stdout)
+    deadline = time.time() + 3
+    second_context_payload = first_context_payload
+    while time.time() < deadline:
+        second_context = invoke_tool(repo_root, env, "context_export", {"task_id": "task-wrapper-1", "format": "json"})
+        assert second_context.returncode == 0, second_context.stderr
+        second_context_payload = json.loads(second_context.stdout)
+        if (
+            first_context_payload["context"]["timestamps"]["generated_at"]
+            != second_context_payload["context"]["timestamps"]["generated_at"]
+        ):
+            break
+        time.sleep(0.1)
 
     assert (
         first_context_payload["context"]["timestamps"]["task_updated_at"]
@@ -168,3 +195,39 @@ def test_openclaw_wrapper_rejects_invalid_payload(tmp_path: Path) -> None:
     assert result.returncode != 0
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
+
+
+def test_openclaw_wrapper_default_worker_id_lowercases_hostname(monkeypatch) -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    module = load_invoke_tool_module(repo_root)
+
+    monkeypatch.delenv("OPENCLAW_WORKER_ID", raising=False)
+    monkeypatch.delenv("TM_WORKER_ID", raising=False)
+    monkeypatch.setattr(module.socket, "gethostname", lambda: "MacBook-Pro.local")
+
+    assert module.default_worker_id() == "openclaw:autonomous:macbook-pro:main"
+
+
+def test_openclaw_policy_allows_public_cli_entrypoint() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    allowlist = (repo_root / "openclaw" / "policy" / "allowlist.toml").read_text()
+
+    assert '["python3", "-m", "concentray_cli.main"]' in allowlist
+    assert '["python", "-m", "concentray_cli.main"]' in allowlist
+
+
+def test_openclaw_wrapper_preserves_skill_args_with_commas() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    module = load_invoke_tool_module(repo_root)
+
+    args = module.build_cli_args(
+        "skill_run",
+        {
+            "skill_id": "echo_args",
+            "task_id": "task-1",
+            "args": ["first,arg", "second"],
+        },
+    )
+
+    assert "--args-json" in args
+    assert args[args.index("--args-json") + 1] == '["first,arg", "second"]'

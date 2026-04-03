@@ -7,7 +7,10 @@ export function workspaceAccent(name: string): string {
 }
 
 export function formatBytes(value?: number): string {
-  if (!value || value <= 0) {
+  if (value === undefined) {
+    return "Unknown";
+  }
+  if (value <= 0) {
     return "0 B";
   }
   if (value < 1024) {

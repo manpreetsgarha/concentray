@@ -58,6 +58,7 @@ Source of truth:
 - local JSON task store
 
 The local JSON store is an internal development datastore for v2. Schema compatibility across versions is not guaranteed.
+If the store schema changes, reinitialize the workspace instead of expecting automatic migration.
 
 Human side:
 - Expo web UI
@@ -82,7 +83,6 @@ Current shared local runtime:
 - `apps/client` - Expo web client
 - `apps/cli` - Python CLI
 - `packages/contracts` - shared schemas and OpenClaw tool schemas
-- `packages/client-data` - local-first data primitives
 - `openclaw` - OpenClaw plugin and skill bundle
 - `skills/concentray-task-operator` - shared Codex / Claude-oriented skill bundle
 - `scripts` - repo-local wrappers and bootstrap scripts
@@ -94,7 +94,7 @@ Concentray is intentionally split so each layer has a narrow job:
 - UI and operator workflows live in `apps/client`
 - command handling, local runtime orchestration, and agent installers live in `apps/cli`
 - shared task/input-request contracts live in `packages/contracts`
-- local-first storage and sync primitives live in `packages/client-data`
+- client-side state stays in the Expo app and talks to the local API directly
 
 Runtime flow:
 
@@ -102,6 +102,7 @@ Runtime flow:
 2. The CLI runtime resolves the active provider and local store.
 3. Shared contracts define the payload shape across UI, CLI, and agent adapters.
 4. The local JSON store remains the source of truth for v2.
+5. `@concentray/contracts` is consumed through the workspace package during development, with `dist/` used only as generated build output.
 
 ## Quick start
 
@@ -110,7 +111,7 @@ Runtime flow:
 ```bash
 pnpm install
 cd apps/cli
-python3.11 -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev]'
 cd ../..
 ```
 
@@ -179,6 +180,8 @@ Background metadata and logs live under:
 - `./.data/runtime/dev-session.json`
 - `./.data/runtime/api.log`
 - `./.data/runtime/web.log`
+
+The shared local API is intentionally unauthenticated and currently serves wildcard CORS for local-only workflows. Do not expose it beyond machines and browsers you trust.
 
 Background web mode serves a static exported web bundle from `.data/runtime/web-dist` through a local HTTP server. Foreground `start` still uses the Expo dev server.
 
@@ -406,7 +409,7 @@ Response payload shapes:
 
 Worker claim behavior:
 - `worker_id` identifies which agent instance currently owns the task
-- `claimed_at` records when that claim was taken
+- `active_run.started_at` records when that claim was taken
 - `task claim-next --execution-mode autonomous` is the safe pickup path for unattended agents
 - `task claim-next --execution-mode session,autonomous` is the live-session pickup path when you explicitly ask Claude/Codex for the next task
 - `task get-next` is for read-only inspection
@@ -572,6 +575,7 @@ Useful variables:
 
 Notes:
 - `./scripts/concentray start` injects the Expo client env automatically.
+- relative `TM_LOCAL_STORE` values resolve from the repo root, not the current shell directory.
 - do not commit a fixed `apps/client/.env` with a hardcoded API URL; use env vars or an untracked local file for manual Expo runs.
 
 ## Testing
@@ -579,8 +583,7 @@ Notes:
 Run all core tests:
 
 ```bash
-pnpm --filter @concentray/client-data test
-cd apps/cli && python3.11 -m pytest -q
+cd apps/cli && python3 -m pytest -q
 ```
 
 OpenClaw wrapper smoke:
@@ -589,7 +592,7 @@ OpenClaw wrapper smoke:
 bash openclaw/examples/smoke.sh
 ```
 
-## Current v1 scope
+## Current v2 scope
 
 Supported and real:
 - local-first runtime

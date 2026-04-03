@@ -1,5 +1,5 @@
 {
-  "$id": "task_heartbeat.input.v2",
+  "$id": "task_heartbeat.input.v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

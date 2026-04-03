@@ -68,7 +68,7 @@ export function AttachmentNoteCard({ note }: AttachmentNoteCardProps) {
             <Text style={styles.linkLabel}>Open Preview</Text>
           </Pressable>
         ) : null}
-        {attachment.download_link && attachment.download_link !== attachment.preview_link ? (
+        {attachment.preview_link && attachment.download_link && attachment.download_link !== attachment.preview_link ? (
           <Pressable style={styles.linkButton} onPress={() => void Linking.openURL(attachment.download_link ?? "")}>
             <Text style={styles.linkLabel}>Download</Text>
           </Pressable>

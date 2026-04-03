@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from dotenv import load_dotenv
 
+from concentray_cli.env import load_environment
 from concentray_cli.workspace_store import (
     get_selected_workspace,
     load_workspace_config,
@@ -33,13 +33,13 @@ def canonical_store_path(path: Path) -> Path:
 
 
 def resolve_local_store_path(store_override: Optional[str] = None) -> Path:
-    load_dotenv()
+    load_environment()
     if store_override:
         return canonical_store_path(Path(store_override))
 
     env_store = os.getenv("TM_LOCAL_STORE", "").strip()
     if env_store:
-        return Path(env_store).expanduser()
+        return canonical_store_path(Path(env_store))
 
     payload = load_workspace_config()
     selected_workspace = get_selected_workspace(payload)

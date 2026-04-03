@@ -1,5 +1,5 @@
 {
-  "$id": "activity_add.output.v2",
+  "$id": "activity_add.output.v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

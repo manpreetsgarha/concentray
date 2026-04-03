@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { formatTimestamp, humanAssignee, humanExecutionMode, humanRuntime, humanStatus } from "../../lib/formatters";
 import type { Task } from "../../types";
-import { FONT_MONO, FONT_SANS } from "../theme";
+import { DISABLED_BUTTON_STYLE, FONT_MONO, FONT_SANS } from "../theme";
 
 interface TaskListItemProps {
   task: Task;
@@ -34,7 +34,7 @@ export function TaskListItem({ task, selected, busy = false, onPress, onToggleDo
     <View style={[styles.taskCard, selected ? styles.taskCardSelected : null]}>
       <View style={[styles.taskStatusBar, statusBarStyle(task.status)]} />
       <Pressable
-        style={[styles.taskCheckButton, strike ? styles.taskCheckButtonDone : null, busy ? styles.buttonDisabled : null]}
+        style={[styles.taskCheckButton, strike ? styles.taskCheckButtonDone : null, busy ? DISABLED_BUTTON_STYLE : null]}
         onPress={onToggleDone}
         disabled={busy}
       >
@@ -163,7 +163,4 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: FONT_SANS
   },
-  buttonDisabled: {
-    opacity: 0.45
-  }
 });

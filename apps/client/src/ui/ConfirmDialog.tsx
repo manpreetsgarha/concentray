@@ -1,7 +1,7 @@
 import React from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { FONT_SANS } from "./theme";
+import { DISABLED_BUTTON_STYLE, FONT_SANS } from "./theme";
 
 interface ConfirmDialogProps {
   visible: boolean;
@@ -31,10 +31,10 @@ export function ConfirmDialog({
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.body}>{body}</Text>
           <View style={styles.actions}>
-            <Pressable style={[styles.secondaryButton, busy ? styles.buttonDisabled : null]} onPress={onCancel} disabled={busy}>
+            <Pressable style={styles.secondaryButton} onPress={onCancel}>
               <Text style={styles.secondaryLabel}>{cancelLabel}</Text>
             </Pressable>
-            <Pressable style={[styles.primaryButton, busy ? styles.buttonDisabled : null]} onPress={onConfirm} disabled={busy}>
+            <Pressable style={[styles.primaryButton, busy ? DISABLED_BUTTON_STYLE : null]} onPress={onConfirm} disabled={busy}>
               <Text style={styles.primaryLabel}>{confirmLabel}</Text>
             </Pressable>
           </View>
@@ -103,8 +103,5 @@ const styles = StyleSheet.create({
     color: "#fef2f2",
     fontWeight: "700",
     fontFamily: FONT_SANS,
-  },
-  buttonDisabled: {
-    opacity: 0.45,
   },
 });

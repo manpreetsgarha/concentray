@@ -1,5 +1,5 @@
 {
-  "$id": "task_get_next.input.v2",
+  "$id": "task_get_next.input.v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

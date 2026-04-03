@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -77,9 +78,20 @@ def load_workspace_config() -> Dict[str, Any]:
 def save_workspace_config(payload: Dict[str, Any]) -> None:
     path = workspace_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(_normalize_workspace_config(payload), indent=2, sort_keys=True))
-    temp.replace(path)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f"{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+        text=True,
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(_normalize_workspace_config(payload), indent=2, sort_keys=True))
+        temp_path.replace(path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def get_selected_workspace(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:

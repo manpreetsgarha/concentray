@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { executionModeToWire, statusToWire, toActivity, toNote, toRun, toTask, toWorkspace } from "./wire";
+import {
+  executionModeToWire,
+  statusToWire,
+  toActivity,
+  toNote,
+  toPendingCheckIn,
+  toRun,
+  toTask,
+  toWorkspace,
+} from "./wire";
 
 describe("wire adapters", () => {
   it("maps task payloads into client models", () => {
@@ -49,6 +58,37 @@ describe("wire adapters", () => {
         selections: ["main"],
       },
     });
+  });
+
+  it("rejects local ISO timestamps without offsets", () => {
+    expect(() =>
+      toTask({
+        id: "task-2",
+        title: "Handle local timestamps",
+        status: "blocked",
+        assignee: "human",
+        target_runtime: null,
+        execution_mode: "session",
+        ai_urgency: 2,
+        context_link: null,
+        input_request: {
+          schema_version: "1.0",
+          request_id: "req-2",
+          type: "text_input",
+          prompt: "Share the status update.",
+          required: true,
+          created_at: "2026-03-01T10:04:00",
+          multiline: false,
+        },
+        input_response: null,
+        active_run_id: null,
+        check_in_requested_at: null,
+        check_in_requested_by: null,
+        created_at: "2026-03-01T10:00:00",
+        updated_at: "2026-03-01T10:05:00+00:00",
+        updated_by: "human",
+      })
+    ).toThrow();
   });
 
   it("maps notes, runs, activity, and workspaces", () => {
@@ -107,5 +147,51 @@ describe("wire adapters", () => {
     expect(statusToWire("in_progress")).toBe("in_progress");
     expect(statusToWire("done")).toBe("done");
     expect(executionModeToWire("session")).toBe("session");
+  });
+
+  it("rejects payloads that fail the shared contracts", () => {
+    expect(() =>
+      toTask({
+        id: "task-1",
+        title: "Ship queue leases",
+        status: "pending",
+        assignee: "ai",
+        target_runtime: "openclaw",
+        execution_mode: "autonomous",
+        ai_urgency: 5,
+        context_link: null,
+        input_request: null,
+        input_response: null,
+        active_run_id: null,
+        check_in_requested_at: null,
+        check_in_requested_by: null,
+        created_at: "not-a-timestamp",
+        updated_at: "2026-03-01T10:05:00+00:00",
+        updated_by: "human",
+      })
+    ).toThrow();
+
+    expect(() =>
+      toNote({
+        id: "note-1",
+        task_id: "task-1",
+        author: "human",
+        kind: "attachment",
+        content: "Broken attachment payload.",
+        attachment: {
+          kind: "file",
+          filename: "approval.pdf",
+          download_link: "not-a-url",
+        },
+        created_at: "2026-03-01T10:06:00+00:00",
+      })
+    ).toThrow();
+
+    expect(() =>
+      toPendingCheckIn({
+        requested_at: "still-not-a-timestamp",
+        requested_by: "human",
+      })
+    ).toThrow();
   });
 });

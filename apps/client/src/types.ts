@@ -1,6 +1,7 @@
 export type {
   Actor,
   AttachmentMeta,
+  PendingCheckIn as PendingCheckInRecord,
   InputRequest,
   InputResponse,
   NoteKind,
@@ -14,6 +15,7 @@ export type {
 import type {
   Actor,
   AttachmentMeta,
+  PendingCheckIn as PendingCheckInRecord,
   InputRequest,
   InputResponse,
   NoteKind,
@@ -23,6 +25,9 @@ import type {
   TaskStatus,
   UpdatedBy,
 } from "@concentray/contracts";
+
+export type DetailTab = "notes" | "activity";
+export type PendingCheckIn = PendingCheckInRecord | null;
 
 export interface Task {
   id: string;

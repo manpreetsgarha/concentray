@@ -78,7 +78,7 @@ function normalizeEnv() {
 }
 
 function runConcentrayTool(toolId, input) {
-  const process = spawnSync("bash", [toolRunner, toolId], {
+  const child = spawnSync("bash", [toolRunner, toolId], {
     cwd: repoRoot,
     env: normalizeEnv(),
     input: JSON.stringify(input ?? {}),
@@ -86,12 +86,12 @@ function runConcentrayTool(toolId, input) {
     maxBuffer: 5 * 1024 * 1024,
   });
 
-  if (process.error) {
-    throw process.error;
+  if (child.error) {
+    throw child.error;
   }
 
-  const stdout = process.stdout?.trim() || "";
-  const stderr = process.stderr?.trim() || "";
+  const stdout = child.stdout?.trim() || "";
+  const stderr = child.stderr?.trim() || "";
   let payload = {};
 
   if (stdout) {
@@ -102,7 +102,7 @@ function runConcentrayTool(toolId, input) {
     }
   }
 
-  if (process.status !== 0) {
+  if (child.status !== 0) {
     const message =
       typeof payload === "object" && payload && "error" in payload && payload.error
         ? String(payload.error)

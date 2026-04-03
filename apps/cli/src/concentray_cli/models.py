@@ -7,12 +7,13 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 
 DEFAULT_HEARTBEAT_SECONDS = 60
 DEFAULT_STALE_WARNING_SECONDS = 180
 DEFAULT_LEASE_SECONDS = 600
+LOCAL_STORE_SCHEMA_VERSION = "1.0"
 WORKER_ID_PATTERN = re.compile(r"^[a-z0-9._:-]+$")
 ATTACHMENT_KINDS = {"image", "video", "text", "csv", "file"}
 INPUT_REQUEST_TYPES = {"choice", "approve_reject", "text_input", "file_or_photo"}
@@ -94,6 +95,26 @@ class Task(BaseModel):
             data["execution_mode"] = TaskExecutionMode.AUTONOMOUS.value
         return data
 
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def normalize_required_timestamps(cls, value: Any, info: ValidationInfo) -> str:
+        return _normalize_datetime(value, field=info.field_name)
+
+    @field_validator("check_in_requested_at", mode="before")
+    @classmethod
+    def normalize_optional_timestamps(cls, value: Any, info: ValidationInfo) -> Optional[str]:
+        return _normalize_optional_datetime(value, field=info.field_name)
+
+    @field_validator("input_request", mode="before")
+    @classmethod
+    def normalize_input_request_timestamps(cls, value: Any) -> Any:
+        return _canonicalize_input_request_timestamps(value, field="input_request")
+
+    @field_validator("input_response", mode="before")
+    @classmethod
+    def normalize_input_response_timestamps(cls, value: Any) -> Any:
+        return _canonicalize_input_response_timestamps(value, field="input_response")
+
     @field_validator("title")
     @classmethod
     def validate_title(cls, value: str) -> str:
@@ -121,6 +142,16 @@ class Note(BaseModel):
 
     model_config = {"use_enum_values": True}
 
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def normalize_created_at(cls, value: Any) -> str:
+        return _normalize_datetime(value, field="created_at")
+
+    @field_validator("attachment", mode="before")
+    @classmethod
+    def normalize_attachment_timestamps(cls, value: Any) -> Any:
+        return _canonicalize_attachment_timestamps(value, field="attachment")
+
 
 class Run(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -136,6 +167,16 @@ class Run(BaseModel):
 
     model_config = {"use_enum_values": True}
 
+    @field_validator("started_at", "last_heartbeat_at", mode="before")
+    @classmethod
+    def normalize_required_timestamps(cls, value: Any, info: ValidationInfo) -> str:
+        return _normalize_datetime(value, field=info.field_name)
+
+    @field_validator("ended_at", mode="before")
+    @classmethod
+    def normalize_optional_timestamps(cls, value: Any, info: ValidationInfo) -> Optional[str]:
+        return _normalize_optional_datetime(value, field=info.field_name)
+
 
 class Activity(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -150,6 +191,11 @@ class Activity(BaseModel):
 
     model_config = {"use_enum_values": True}
 
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def normalize_created_at(cls, value: Any) -> str:
+        return _normalize_datetime(value, field="created_at")
+
     @field_validator("kind", "summary")
     @classmethod
     def validate_non_empty(cls, value: str) -> str:
@@ -160,6 +206,7 @@ class Activity(BaseModel):
 
 
 class Store(BaseModel):
+    schema_version: str = LOCAL_STORE_SCHEMA_VERSION
     tasks: List[Task] = Field(default_factory=list)
     notes: List[Note] = Field(default_factory=list)
     runs: List[Run] = Field(default_factory=list)
@@ -223,8 +270,48 @@ def _normalize_datetime(value: Any, *, field: str, default: Optional[str] = None
             raise ValueError(f"{field} is required")
         value = default
     normalized = _normalize_string(value, field=field)
-    if parse_iso(normalized) is None:
+    parsed = parse_iso(normalized)
+    if parsed is None:
         raise ValueError(f"{field} must be an ISO timestamp")
+    return parsed.isoformat()
+
+
+def _normalize_optional_datetime(value: Any, *, field: str) -> Optional[str]:
+    if value is None:
+        return None
+    return _normalize_datetime(value, field=field)
+
+
+def _canonicalize_attachment_timestamps(value: Any, *, field: str) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    if normalized.get("uploaded_at") is not None:
+        normalized["uploaded_at"] = _normalize_datetime(normalized["uploaded_at"], field=f"{field}.uploaded_at")
+    return normalized
+
+
+def _canonicalize_input_request_timestamps(value: Any, *, field: str) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    if normalized.get("created_at") is not None:
+        normalized["created_at"] = _normalize_datetime(normalized["created_at"], field=f"{field}.created_at")
+    if normalized.get("expires_at") is not None:
+        normalized["expires_at"] = _normalize_datetime(normalized["expires_at"], field=f"{field}.expires_at")
+    return normalized
+
+
+def _canonicalize_input_response_timestamps(value: Any, *, field: str) -> Any:
+    if not isinstance(value, dict):
+        return value
+    normalized = dict(value)
+    files = normalized.get("files")
+    if normalized.get("type") == "file_or_photo" and isinstance(files, list):
+        normalized["files"] = [
+            _canonicalize_attachment_timestamps(file_payload, field=f"{field}.files[{index}]")
+            for index, file_payload in enumerate(files)
+        ]
     return normalized
 
 

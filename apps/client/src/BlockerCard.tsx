@@ -1,25 +1,28 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { pickFilesForUpload, type UploadDraft } from "./lib/uploads";
+import type { BlockerSubmission } from "./lib/blockerSubmission";
+import { pickFilesForUpload } from "./lib/uploads";
 import type { InputRequest } from "./types";
-import { FONT_SANS } from "./ui/theme";
-
-export type BlockerSubmission =
-  | { type: "choice"; selections: string[] }
-  | { type: "approve_reject"; approved: boolean }
-  | { type: "text_input"; value: string }
-  | { type: "file_or_photo"; files: UploadDraft[] };
+import { DISABLED_BUTTON_STYLE, FONT_SANS } from "./ui/theme";
 
 interface Props {
   inputRequest: InputRequest;
   busy?: boolean;
+  onError?: (message: string) => void;
   onSubmit: (payload: BlockerSubmission) => void | Promise<void>;
 }
 
-export function BlockerCard({ inputRequest, busy = false, onSubmit }: Props) {
+export function BlockerCard({ inputRequest, busy = false, onError, onSubmit }: Props) {
   const [textValue, setTextValue] = useState("");
   const [selectedChoices, setSelectedChoices] = useState<string[]>([]);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const hint = useMemo(() => {
     if (inputRequest.type === "file_or_photo") {
@@ -61,14 +64,21 @@ export function BlockerCard({ inputRequest, busy = false, onSubmit }: Props) {
     if (inputRequest.type !== "file_or_photo" || Platform.OS !== "web") {
       return;
     }
-    const files = await pickFilesForUpload({
-      accept: fileAccept,
-      multiple: inputRequest.max_files > 1,
-    });
-    if (files.length === 0) {
-      return;
+    try {
+      const files = await pickFilesForUpload({
+        accept: fileAccept,
+        multiple: inputRequest.max_files > 1,
+      });
+      if (!mountedRef.current || files.length === 0) {
+        return;
+      }
+      void onSubmit({ type: "file_or_photo", files });
+    } catch (error) {
+      if (!mountedRef.current) {
+        return;
+      }
+      onError?.(error instanceof Error ? error.message : "Failed to read selected file.");
     }
-    void onSubmit({ type: "file_or_photo", files });
   };
 
   return (
@@ -88,7 +98,7 @@ export function BlockerCard({ inputRequest, busy = false, onSubmit }: Props) {
                 style={[
                   styles.choiceChip,
                   selectedChoices.includes(option) ? styles.choiceChipSelected : null,
-                  busy ? styles.buttonDisabled : null,
+                  busy ? DISABLED_BUTTON_STYLE : null,
                 ]}
                 onPress={() => toggleChoice(option)}
                 disabled={busy}
@@ -99,7 +109,7 @@ export function BlockerCard({ inputRequest, busy = false, onSubmit }: Props) {
           </View>
           {inputRequest.allow_multiple ? (
             <Pressable
-              style={[styles.submit, selectedChoices.length === 0 || busy ? styles.buttonDisabled : null]}
+              style={[styles.submit, selectedChoices.length === 0 || busy ? DISABLED_BUTTON_STYLE : null]}
               onPress={submitMultiChoice}
               disabled={selectedChoices.length === 0 || busy}
             >
@@ -112,14 +122,14 @@ export function BlockerCard({ inputRequest, busy = false, onSubmit }: Props) {
       {inputRequest.type === "approve_reject" ? (
         <View style={styles.rowWrap}>
           <Pressable
-            style={[styles.actionButton, styles.approve, busy ? styles.buttonDisabled : null]}
+            style={[styles.actionButton, styles.approve, busy ? DISABLED_BUTTON_STYLE : null]}
             onPress={() => onSubmit({ type: "approve_reject", approved: true })}
             disabled={busy}
           >
             <Text style={styles.actionText}>{inputRequest.approve_label}</Text>
           </Pressable>
           <Pressable
-            style={[styles.actionButton, styles.reject, busy ? styles.buttonDisabled : null]}
+            style={[styles.actionButton, styles.reject, busy ? DISABLED_BUTTON_STYLE : null]}
             onPress={() => onSubmit({ type: "approve_reject", approved: false })}
             disabled={busy}
           >
@@ -140,7 +150,7 @@ export function BlockerCard({ inputRequest, busy = false, onSubmit }: Props) {
             onChangeText={setTextValue}
           />
           <Pressable
-            style={[styles.submit, (!textValue.trim() || busy) ? styles.buttonDisabled : null]}
+            style={[styles.submit, !textValue.trim() || busy ? DISABLED_BUTTON_STYLE : null]}
             onPress={() => onSubmit({ type: "text_input", value: textValue.trim() })}
             disabled={!textValue.trim() || busy}
           >
@@ -154,7 +164,7 @@ export function BlockerCard({ inputRequest, busy = false, onSubmit }: Props) {
           <Text style={styles.hint}>{hint}</Text>
           {Platform.OS === "web" ? (
             <Pressable
-              style={[styles.submit, busy ? styles.buttonDisabled : null]}
+              style={[styles.submit, busy ? DISABLED_BUTTON_STYLE : null]}
               onPress={() => void uploadRequestedFiles()}
               disabled={busy}
             >
@@ -285,8 +295,5 @@ const styles = StyleSheet.create({
     color: "#526080",
     fontSize: 13,
     fontFamily: FONT_SANS,
-  },
-  buttonDisabled: {
-    opacity: 0.45,
   },
 });

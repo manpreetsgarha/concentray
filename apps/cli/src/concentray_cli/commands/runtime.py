@@ -73,9 +73,9 @@ def doctor(as_json: bool = typer.Option(False, "--json")) -> None:
 
     checks.append(
         {
-            "name": "python3.11",
-            "ok": bool(shutil.which("python3.11")),
-            "fix": "Install Python 3.11 and ensure it is in PATH.",
+            "name": "python3",
+            "ok": bool(shutil.which("python3")),
+            "fix": "Install Python 3 and ensure it is in PATH.",
         }
     )
     checks.append(
@@ -181,7 +181,7 @@ def start_workspace(
         api_cmd = [
             sys.executable,
             "-m",
-            "concentray_cli.cli_app",
+            "concentray_cli.main",
             "serve-local-api",
             "--host",
             bind_host,

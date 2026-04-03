@@ -1,5 +1,5 @@
 {
-  "$id": "activity_add.input.v2",
+  "$id": "activity_add.input.v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

@@ -1,5 +1,6 @@
 node_modules
 .pnpm-store
+.uv-cache
 .DS_Store
 .data
 .claude
@@ -13,6 +14,7 @@ __pycache__
 coverage
 apps/cli/.mypy_cache
 apps/cli/.ruff_cache
+apps/cli/uv.lock
 *.egg-info
 .generated
 dist

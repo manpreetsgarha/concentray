@@ -14,22 +14,25 @@ pnpm web
 The client is organized around a few clear layers:
 
 - `src/data` handles API helpers and wire-to-domain mapping
-- `src/hooks` owns shared API access helpers
+- `src/hooks` owns overview polling, selected-task detail loading, mutation orchestration, and shared API access
 - `src/lib` holds pure formatting and upload helpers
-- `src/ui` contains reusable presentation components for the sidebar, task detail, attachments, and confirmation flows
-- `App.tsx` is the shell that composes the task sidebar, detail pane, and creation modals
+- `src/ui` contains reusable presentation components for the sidebar, detail pane, attachments, dialogs, and the root error boundary
+- `App.tsx` is now a thin shell that composes those hooks and top-level layout pieces
 
 Shared domain primitives such as actor/status/execution-mode/input-request types come from `@concentray/contracts`.
 Client-specific view models stay in `src/types.ts`.
+At runtime the contracts package is consumed from `packages/contracts/dist`, not from raw source exports.
+
+The client deliberately does not use a separate local-sync package. It talks to the shared local API directly and uses polling for refresh.
 
 ## Shared local storage (UI + terminal agent)
 
-1. Start the local shared API from the CLI workspace:
+1. Start the local shared API from the repo root:
 
 ```bash
-cd /path/to/concentray/apps/cli
+cd /path/to/concentray
 export TM_PROVIDER=local_json
-export TM_LOCAL_STORE=.data/store.json
+export TM_LOCAL_STORE=./.data/store.json
 concentray serve-local-api --host 127.0.0.1 --port 8787
 ```
 
@@ -42,6 +45,9 @@ pnpm web
 ```
 
 Now the web app and terminal agent both read/write the same local store.
+That store is versioned developer state, not a stable migration target across schema changes.
+
+The local shared API intentionally uses wildcard CORS for same-machine development. Keep it on trusted local surfaces only.
 
 When using `./scripts/concentray start`, the CLI injects these variables automatically. Do not commit a project-local `apps/client/.env` with a fixed API URL.
 

@@ -1,5 +1,5 @@
 {
-  "$id": "task_update.output.v2",
+  "$id": "task_update.output.v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

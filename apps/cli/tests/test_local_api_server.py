@@ -1,4 +1,5 @@
 import json
+import socket
 import threading
 import urllib.error
 import urllib.request
@@ -16,8 +17,9 @@ def _request(base_url: str, method: str, path: str, payload: dict | None = None)
         headers={"Content-Type": "application/json"},
         method=method,
     )
-    with urllib.request.urlopen(request) as response:
-        return response.status, json.loads(response.read().decode("utf-8"))
+    with urllib.request.urlopen(request, timeout=5) as response:
+        body = response.read()
+        return response.status, json.loads(body.decode("utf-8")) if body else {}
 
 
 def test_local_api_claim_heartbeat_and_activity_flow(tmp_path: Path, monkeypatch) -> None:
@@ -207,6 +209,55 @@ def test_local_api_notes_round_trip_and_emit_activity(tmp_path: Path, monkeypatc
         thread.join(timeout=2)
 
 
+def test_local_api_file_upload_and_download_round_trip(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        store = tmp_path / "default.json"
+        _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
+        _, created = _request(
+            base_url,
+            "POST",
+            "/tasks",
+            {"title": "Upload proof", "assignee": "human", "updated_by": "human"},
+        )
+        task_id = created["task"]["id"]
+
+        status, upload_payload = _request(
+            base_url,
+            "POST",
+            "/files",
+            {
+                "task_id": task_id,
+                "filename": "proof.txt",
+                "mime_type": "text/plain",
+                "data_base64": "cHJvb2Ygb2Ygd29yaw==",
+            },
+        )
+        assert status == 201
+        download_link = str(upload_payload["file"]["download_link"])
+        assert upload_payload["file"]["preview_text"] == "proof of work"
+
+        with urllib.request.urlopen(download_link, timeout=5) as response:
+            assert response.status == 200
+            assert response.read() == b"proof of work"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_local_api_returns_json_errors_for_bad_requests(tmp_path: Path, monkeypatch) -> None:
     workspace_config = tmp_path / "workspaces.json"
     monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
@@ -233,7 +284,7 @@ def test_local_api_returns_json_errors_for_bad_requests(tmp_path: Path, monkeypa
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            urllib.request.urlopen(bad_json_request)
+            urllib.request.urlopen(bad_json_request, timeout=5)
             assert False, "Expected malformed JSON to fail"
         except urllib.error.HTTPError as exc:
             payload = json.loads(exc.read().decode("utf-8"))
@@ -242,13 +293,150 @@ def test_local_api_returns_json_errors_for_bad_requests(tmp_path: Path, monkeypa
             assert "invalid json body" in payload["error"].lower()
 
         try:
-            urllib.request.urlopen(f"{base_url}/tasks?status=bogus")
+            urllib.request.urlopen(f"{base_url}/tasks?status=bogus", timeout=5)
             assert False, "Expected invalid enum filter to fail"
         except urllib.error.HTTPError as exc:
             payload = json.loads(exc.read().decode("utf-8"))
             assert exc.code == 400
             assert payload["ok"] is False
             assert "status must be one of" in payload["error"].lower()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_rejects_oversized_json_bodies(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        with socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=5) as client:
+            client.sendall(
+                (
+                    "POST /tasks HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{server.server_address[1]}\r\n"
+                    "Content-Type: application/json\r\n"
+                    f"Content-Length: {1024 * 1024 + 1}\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("utf-8")
+            )
+            chunks: list[bytes] = []
+            while True:
+                chunk = client.recv(4096)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            raw_response = b"".join(chunks).decode("utf-8")
+
+        assert "413" in raw_response.splitlines()[0]
+        assert "Request body exceeds limit" in raw_response
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_blocks_symlink_file_escape(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    protected_file = tmp_path / "outside.txt"
+    protected_file.write_text("private")
+    (uploads_dir / "escape.txt").symlink_to(protected_file)
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=uploads_dir,
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        try:
+            urllib.request.urlopen(f"{base_url}/files/escape.txt", timeout=5)
+            assert False, "Expected symlink escape to fail"
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            assert exc.code == 400
+            assert payload["ok"] is False
+            assert "invalid file path" in payload["error"].lower()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_returns_404_for_missing_uploaded_file(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        try:
+            urllib.request.urlopen(f"{base_url}/files/missing.txt", timeout=5)
+            assert False, "Expected missing file lookup to fail"
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            assert exc.code == 404
+            assert payload["ok"] is False
+            assert payload["error"] == "File not found"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_add_workspace_canonicalizes_relative_store_path(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+    monkeypatch.setenv("TM_PROJECT_ROOT", str(repo_root))
+    monkeypatch.chdir(tmp_path)
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        status, payload = _request(
+            base_url,
+            "POST",
+            "/workspaces",
+            {"name": "default", "store": ".data/default.json", "set_active": True},
+        )
+        assert status == 201
+        assert payload["selected_workspace"]["store"] == str(repo_root / ".data" / "default.json")
     finally:
         server.shutdown()
         server.server_close()
@@ -307,6 +495,39 @@ def test_local_api_respond_endpoint_unblocks_task(tmp_path: Path, monkeypatch) -
         assert responded["task"]["input_request"] is None
         assert responded["task"]["input_response"]["approved"] is True
         assert responded["active_run"] is None
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_local_api_delete_returns_204_no_content(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        store = tmp_path / "default.json"
+        _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
+        _, created = _request(
+            base_url,
+            "POST",
+            "/tasks",
+            {"title": "Delete me", "assignee": "human", "updated_by": "human"},
+        )
+
+        status, payload = _request(base_url, "DELETE", f"/tasks/{created['task']['id']}")
+        assert status == 204
+        assert payload == {}
     finally:
         server.shutdown()
         server.server_close()

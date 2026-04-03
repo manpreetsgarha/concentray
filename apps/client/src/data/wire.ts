@@ -1,66 +1,31 @@
 import {
   activityRecordSchema,
+  type ActivityRecord,
   noteRecordSchema,
+  type NoteRecord,
+  pendingCheckInSchema,
   runRecordSchema,
+  type RunRecord,
   taskRecordSchema,
+  type TaskRecord,
 } from "@concentray/contracts";
 import { z } from "zod";
 
-import type { Activity, Note, Run, Runtime, Task, TaskExecutionMode, TaskStatus, UpdatedBy, WorkspaceSummary } from "../types";
+import type {
+  Activity,
+  Note,
+  PendingCheckIn,
+  Run,
+  Task,
+  TaskExecutionMode,
+  TaskStatus,
+  WorkspaceSummary,
+} from "../types";
 
-export interface WireTask {
-  id: string;
-  title: string;
-  status: TaskStatus;
-  assignee: "human" | "ai";
-  target_runtime: Runtime | null;
-  execution_mode: TaskExecutionMode;
-  ai_urgency: number;
-  context_link: string | null;
-  input_request: Record<string, unknown> | null;
-  input_response: Record<string, unknown> | null;
-  active_run_id: string | null;
-  check_in_requested_at: string | null;
-  check_in_requested_by: UpdatedBy | null;
-  created_at: string;
-  updated_at: string;
-  updated_by: UpdatedBy;
-}
-
-export interface WireNote {
-  id: string;
-  task_id: string;
-  author: UpdatedBy;
-  kind: "note" | "attachment";
-  content: string;
-  attachment: Record<string, unknown> | null;
-  created_at: string;
-}
-
-export interface WireRun {
-  id: string;
-  task_id: string;
-  runtime: Runtime;
-  worker_id: string;
-  status: "active" | "expired" | "ended";
-  started_at: string;
-  last_heartbeat_at: string;
-  ended_at: string | null;
-  lease_seconds: number;
-  end_reason: string | null;
-}
-
-export interface WireActivity {
-  id: string;
-  task_id: string;
-  run_id: string | null;
-  runtime: Runtime | null;
-  actor: UpdatedBy;
-  kind: string;
-  summary: string;
-  payload: Record<string, unknown> | null;
-  created_at: string;
-}
+export type WireTask = TaskRecord;
+export type WireNote = NoteRecord;
+export type WireRun = RunRecord;
+export type WireActivity = ActivityRecord;
 
 export interface WireWorkspace {
   name: string;
@@ -148,6 +113,13 @@ export function toActivity(wire: WireActivity): Activity {
     payload: parsed.payload,
     createdAt: parsed.created_at,
   };
+}
+
+export function toPendingCheckIn(wire: unknown): PendingCheckIn | null {
+  if (wire == null) {
+    return null;
+  }
+  return pendingCheckInSchema.parse(wire);
 }
 
 export function toWorkspace(wire: WireWorkspace): WorkspaceSummary {

@@ -82,6 +82,7 @@ def _seed_store(
     path.write_text(
         json.dumps(
             {
+                "schema_version": "1.0",
                 "tasks": tasks,
                 "notes": notes or [],
                 "runs": runs or [],
@@ -249,6 +250,36 @@ def test_concurrent_claims_only_one_worker_wins(tmp_path: Path) -> None:
     assert payload["tasks"][0]["active_run_id"] == payload["runs"][0]["id"]
 
 
+def test_provider_rejects_unversioned_store(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    store.write_text(json.dumps({"tasks": [], "notes": [], "runs": [], "activity": []}))
+
+    provider = LocalJsonProvider(store)
+
+    with pytest.raises(ValueError, match="Unsupported local store schema"):
+        provider.list_tasks()
+
+
+def test_provider_rejects_empty_object_store(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    store.write_text("{}")
+
+    provider = LocalJsonProvider(store)
+
+    with pytest.raises(ValueError, match="Unsupported local store schema"):
+        provider.list_tasks()
+
+
+def test_provider_rejects_empty_file_store(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    store.write_text("")
+
+    provider = LocalJsonProvider(store)
+
+    with pytest.raises(ValueError, match="Unsupported local store schema"):
+        provider.list_tasks()
+
+
 def test_add_note_creates_human_note_and_activity_record(tmp_path: Path) -> None:
     store = tmp_path / "store.json"
     _seed_store(store, tasks=[_task("task-1", assignee="human", execution_mode="session")])
@@ -296,6 +327,69 @@ def test_update_task_rejects_input_request_without_human_blocked_state(tmp_path:
             worker_id="openclaw:autonomous:test:main",
             allow_override=True,
         )
+
+
+def test_create_task_rejects_blank_title(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(store, tasks=[])
+    provider = LocalJsonProvider(store)
+
+    with pytest.raises(ValueError, match="title is required"):
+        provider.create_task({"title": "   ", "assignee": "ai"}, updated_by=UpdatedBy.HUMAN)
+
+
+def test_update_task_preserves_run_id_on_status_and_routing_activity_when_ending_run(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(
+        store,
+        tasks=[
+            _task(
+                "task-1",
+                status="in_progress",
+                assignee="ai",
+                target_runtime="openclaw",
+                active_run_id="run-1",
+            )
+        ],
+        runs=[
+            _run(
+                "run-1",
+                "task-1",
+                worker_id="openclaw:autonomous:test:main",
+                status="active",
+                started_at="2099-01-01T00:00:00+00:00",
+                last_heartbeat_at="2099-01-01T00:00:00+00:00",
+            )
+        ],
+    )
+    provider = LocalJsonProvider(store)
+
+    provider.update_task(
+        "task-1",
+        {
+            "status": "blocked",
+            "assignee": "human",
+            "input_request": {
+                "schema_version": "1.0",
+                "request_id": "req-1",
+                "type": "choice",
+                "prompt": "Need approval",
+                "required": True,
+                "created_at": "2026-03-03T10:00:00+00:00",
+                "options": ["yes", "no"],
+            },
+        },
+        updated_by=UpdatedBy.AI,
+        runtime=Runtime.OPENCLAW,
+        worker_id="openclaw:autonomous:test:main",
+    )
+
+    activity = provider.list_activity("task-1")
+    status_entry = next(entry for entry in activity if entry.kind == "status_changed")
+    routing_entry = next(entry for entry in activity if entry.kind == "routing_changed")
+
+    assert status_entry.run_id == "run-1"
+    assert routing_entry.run_id == "run-1"
 
 
 @pytest.mark.parametrize(
@@ -501,3 +595,37 @@ def test_respond_to_input_request_ends_orphaned_active_run(tmp_path: Path) -> No
     run = next(item for item in payload["runs"] if item["id"] == "run-1")
     assert run["status"] == "ended"
     assert run["end_reason"] == "input_responded"
+
+
+def test_respond_to_input_request_resets_execution_mode_for_ai_tasks(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(
+        store,
+        tasks=[
+            _task(
+                "blocked-task",
+                status="blocked",
+                assignee="human",
+                target_runtime="openclaw",
+                execution_mode="session",
+                input_request={
+                    "schema_version": "1.0",
+                    "request_id": "req-text",
+                    "type": "text_input",
+                    "prompt": "Provide the missing detail.",
+                    "required": True,
+                    "created_at": "2026-03-03T10:00:00+00:00",
+                },
+            )
+        ],
+    )
+    provider = LocalJsonProvider(store)
+
+    updated = provider.respond_to_input_request(
+        "blocked-task",
+        updated_by=UpdatedBy.HUMAN,
+        response={"type": "text_input", "value": "Details supplied."},
+    )
+
+    assert updated.assignee == "ai"
+    assert updated.execution_mode == "autonomous"

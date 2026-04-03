@@ -5,7 +5,7 @@ Python CLI for the Concentray collaboration model.
 ## Run locally
 
 ```bash
-python3.11 -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev]'
 concentray --help
 ```
 
@@ -30,11 +30,17 @@ The CLI is now split by responsibility instead of one large entrypoint:
 
 `main.py` is only the Python entrypoint and re-export surface.
 
-No-install repo-local wrapper:
+Repo-local wrapper:
 
 ```bash
 cd /path/to/concentray
 ./scripts/concentray --help
+```
+
+Optional `uv` path when you want the wrapper to resolve CLI deps through the project:
+
+```bash
+CONCENTRAY_USE_UV=1 ./scripts/concentray --help
 ```
 
 ## Quick OSS flow
@@ -80,8 +86,8 @@ concentray doctor
 ## Quality checks
 
 ```bash
-python3.11 -m ruff check src tests
-python3.11 -m pytest -q
+python3 -m ruff check src tests
+python3 -m pytest -q
 ```
 
 ## Default provider
@@ -89,6 +95,7 @@ python3.11 -m pytest -q
 `TM_PROVIDER=local_json`
 
 The local JSON store is a development datastore, not a stable migration surface. If task schema changes, reinitialize the workspace instead of expecting on-disk compatibility.
+Relative `TM_LOCAL_STORE` values resolve from the repo root. The canonical shared default is `./.data/store.json`.
 
 ## Saved workspaces
 
@@ -158,6 +165,8 @@ export TM_LOCAL_STORE=.data/store.json
 export TM_LOCAL_MAX_UPLOAD_MB=25
 concentray serve-local-api --host 127.0.0.1 --port 8787
 ```
+
+This local API is intentionally unauthenticated and currently serves wildcard CORS so the web UI and local tools can share it without extra setup. Treat it as a local-only developer surface.
 
 Rich document uploads in shared API mode support:
 

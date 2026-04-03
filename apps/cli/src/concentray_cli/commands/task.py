@@ -101,7 +101,7 @@ def task_claim_next(
     updated_by = parse_updated_by(os.getenv("TM_UPDATED_BY", "ai"))
     task, run = provider.claim_next_task(
         runtime=parse_runtime(runtime),
-        worker_id=worker_id,
+        worker_id=normalize_worker_id(worker_id) or "",
         statuses=parse_statuses(status),
         execution_modes=parse_execution_modes(execution_mode),
         updated_by=updated_by,
@@ -219,7 +219,11 @@ def task_heartbeat(
     if not task:
         raise typer.BadParameter(f"Task '{task_id}' not found")
 
-    run = provider.heartbeat(task_id, runtime=parse_runtime(runtime), worker_id=worker_id)
+    run = provider.heartbeat(
+        task_id,
+        runtime=parse_runtime(runtime),
+        worker_id=normalize_worker_id(worker_id) or "",
+    )
     refreshed_task = provider.get_task(task_id)
     emit(
         {

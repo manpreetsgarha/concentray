@@ -11,7 +11,8 @@ import {
   View,
 } from "react-native";
 
-import { BlockerCard, type BlockerSubmission } from "../../BlockerCard";
+import { BlockerCard } from "../../BlockerCard";
+import type { BlockerSubmission } from "../../lib/blockerSubmission";
 import {
   formatMetadataJson,
   formatTimestamp,
@@ -20,12 +21,9 @@ import {
   humanStatus,
   looksLikeUrl,
 } from "../../lib/formatters";
-import type { Activity, Note, Run, Task, TaskStatus } from "../../types";
-import { FONT_MONO, FONT_SANS } from "../theme";
+import type { Activity, DetailTab, Note, PendingCheckIn, Run, Task, TaskStatus } from "../../types";
+import { DISABLED_BUTTON_STYLE, FONT_MONO, FONT_SANS } from "../theme";
 import { AttachmentNoteCard } from "./AttachmentNoteCard";
-
-export type DetailTab = "notes" | "activity";
-export type PendingCheckIn = { requested_at: string; requested_by: string } | null;
 
 function isRunWarning(run: Run | null): boolean {
   if (!run || run.status !== "active") {
@@ -59,6 +57,7 @@ interface TaskDetailPaneProps {
   onAddNote: () => void;
   onUploadAttachment: () => void;
   onRespond: (submission: BlockerSubmission) => void | Promise<void>;
+  onBlockerError: (message: string) => void;
   onDelete: () => void;
 }
 
@@ -78,6 +77,7 @@ export function TaskDetailPane({
   onAddNote,
   onUploadAttachment,
   onRespond,
+  onBlockerError,
   onDelete,
 }: TaskDetailPaneProps) {
   if (!task) {
@@ -104,7 +104,7 @@ export function TaskDetailPane({
             </Text>
           </View>
           <Pressable
-            style={[styles.deleteButton, deleting ? styles.buttonDisabled : null]}
+            style={[styles.deleteButton, deleting ? DISABLED_BUTTON_STYLE : null]}
             onPress={onDelete}
             disabled={deleting}
           >
@@ -134,6 +134,7 @@ export function TaskDetailPane({
             key={`${task.id}:${task.inputRequest.request_id}`}
             inputRequest={task.inputRequest}
             busy={responding}
+            onError={onBlockerError}
             onSubmit={onRespond}
           />
         ) : null}
@@ -154,7 +155,7 @@ export function TaskDetailPane({
 
         <View style={styles.actionRow}>
           <Pressable
-            style={[styles.secondaryAction, busyAction === `checkin:${task.id}` ? styles.buttonDisabled : null]}
+            style={[styles.secondaryAction, busyAction === `checkin:${task.id}` ? DISABLED_BUTTON_STYLE : null]}
             onPress={onRequestCheckIn}
             disabled={busyAction === `checkin:${task.id}`}
           >
@@ -169,7 +170,7 @@ export function TaskDetailPane({
               style={[
                 styles.statusButton,
                 task.status === option.value ? styles.statusButtonActive : null,
-                busyAction === `${task.id}:${option.value}` ? styles.buttonDisabled : null,
+                busyAction === `${task.id}:${option.value}` ? DISABLED_BUTTON_STYLE : null,
               ]}
               onPress={() => onStatusChange(task, option.value)}
               disabled={busyAction === `${task.id}:${option.value}`}
@@ -226,7 +227,7 @@ export function TaskDetailPane({
               />
               <View style={styles.composerActions}>
                 <Pressable
-                  style={[styles.primaryButton, !noteDraft.trim() || noteBusy ? styles.buttonDisabled : null]}
+                  style={[styles.primaryButton, !noteDraft.trim() || noteBusy ? DISABLED_BUTTON_STYLE : null]}
                   onPress={onAddNote}
                   disabled={!noteDraft.trim() || noteBusy}
                 >
@@ -234,7 +235,7 @@ export function TaskDetailPane({
                 </Pressable>
                 {Platform.OS === "web" ? (
                   <Pressable
-                    style={[styles.secondaryAction, noteBusy ? styles.buttonDisabled : null]}
+                    style={[styles.secondaryAction, noteBusy ? DISABLED_BUTTON_STYLE : null]}
                     onPress={onUploadAttachment}
                     disabled={noteBusy}
                   >
@@ -536,8 +537,5 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: "center",
     fontFamily: FONT_SANS,
-  },
-  buttonDisabled: {
-    opacity: 0.45,
   },
 });

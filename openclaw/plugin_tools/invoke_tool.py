@@ -36,9 +36,10 @@ except ModuleNotFoundError:
             if enum is not None and value not in enum:
                 raise ValidationError(f"Invalid enum value for {key}: {value}")
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+repo_root_override = (os.getenv("CONCENTRAY_ROOT", "") or os.getenv("TM_PROJECT_ROOT", "")).strip()
+REPO_ROOT = Path(repo_root_override).expanduser().resolve() if repo_root_override else Path(__file__).resolve().parents[2]
 SCHEMA_ROOT = REPO_ROOT / "packages" / "contracts" / "openclaw-tools" / "v1"
-CLI_MODULE = [sys.executable, "-m", "concentray_cli.cli_app"]
+CLI_MODULE = [sys.executable, "-m", "concentray_cli.main"]
 
 
 def load_json(path: Path) -> Dict[str, Any]:
@@ -78,7 +79,7 @@ def default_worker_id(prefix: str = "openclaw") -> str:
     configured = os.environ.get("OPENCLAW_WORKER_ID") or os.environ.get("TM_WORKER_ID")
     if configured and configured.strip():
         return configured.strip()
-    hostname = socket.gethostname().split(".")[0] or "host"
+    hostname = socket.gethostname().split(".")[0].lower() or "host"
     return f"{prefix}:autonomous:{hostname}:main"
 
 
@@ -221,7 +222,7 @@ def build_cli_args(tool: str, payload: Dict[str, Any]) -> List[str]:
             "--json",
         ]
         if payload.get("args"):
-            args.extend(["--args", ",".join(payload["args"])])
+            args.extend(["--args-json", json.dumps(payload["args"])])
         return args
 
     raise ValueError(f"Unsupported tool: {tool}")

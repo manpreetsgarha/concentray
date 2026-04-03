@@ -3,15 +3,21 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CLI_DIR="$REPO_ROOT/apps/cli"
-STORE_FILE="$CLI_DIR/.data/store.json"
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3)}"
+STORE_FILE="$REPO_ROOT/.data/store.json"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
 
-mkdir -p "$CLI_DIR/.data"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  echo "python3 or python is required in PATH." >&2
+  exit 1
+fi
+
+mkdir -p "$REPO_ROOT/.data"
 mkdir -p "$REPO_ROOT/.generated"
 
 if [[ ! -f "$STORE_FILE" ]]; then
   cat > "$STORE_FILE" <<'JSON'
 {
+  "schema_version": "1.0",
   "tasks": [],
   "notes": [],
   "runs": [],
@@ -38,7 +44,7 @@ CSV
 
 bash "$REPO_ROOT/scripts/bootstrap/bootstrap_openclaw.sh"
 
-echo "\nRunning CLI smoke check (local_json provider)..."
+printf '\nRunning CLI smoke check (local_json provider)...\n'
 (
   cd "$CLI_DIR"
   export TM_PROVIDER="local_json"

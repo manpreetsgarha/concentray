@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { sortTasks } from "./formatters";
+import {
+  formatBytes,
+  formatTimestamp,
+  humanStatus,
+  looksLikeUrl,
+  sortTasks,
+} from "./formatters";
 import type { Task } from "../types";
 
 function makeTask(overrides: Partial<Task> & Pick<Task, "id">): Task {
@@ -71,5 +77,26 @@ describe("sortTasks", () => {
       "shared-a",
       "shared-b",
     ]);
+  });
+});
+
+describe("formatter helpers", () => {
+  it("formats bytes without treating unknown as zero", () => {
+    expect(formatBytes(undefined)).toBe("Unknown");
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(2048)).toBe("2.0 KB");
+  });
+
+  it("formats timestamps and falls back safely", () => {
+    expect(formatTimestamp("2026-03-03T10:00:00+00:00")).toContain("Mar");
+    expect(formatTimestamp("not-a-date")).toBe("not-a-date");
+    expect(formatTimestamp()).toBe("Unknown");
+  });
+
+  it("detects URLs and humanizes status", () => {
+    expect(looksLikeUrl("https://example.com")).toBe(true);
+    expect(looksLikeUrl("ftp://example.com")).toBe(false);
+    expect(looksLikeUrl("not-a-url")).toBe(false);
+    expect(humanStatus("in_progress")).toBe("In Progress");
   });
 });

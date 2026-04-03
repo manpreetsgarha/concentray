@@ -4,14 +4,13 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "start": "expo start",
-    "web": "expo start --web",
+    "start": "pnpm --filter @concentray/contracts build && expo start",
+    "web": "pnpm --filter @concentray/contracts build && expo start --web",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "pnpm --filter @concentray/contracts build && vitest run"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.6",
-    "@concentray/client-data": "workspace:*",
     "@concentray/contracts": "workspace:*",
     "@expo/metro-runtime": "~4.0.1",
     "@expo/vector-icons": "^14.0.4",
@@ -27,6 +26,8 @@
   "devDependencies": {
     "@types/node": "^22.13.10",
     "@types/react": "~18.3.28",
+    "@types/react-test-renderer": "^18.3.1",
+    "react-test-renderer": "18.3.1",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9"
   }

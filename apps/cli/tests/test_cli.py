@@ -15,6 +15,7 @@ def seed_store(path: Path) -> None:
     path.write_text(
         json.dumps(
             {
+                "schema_version": "1.0",
                 "tasks": [
                     {
                         "id": "task-openclaw",
@@ -89,6 +90,34 @@ def test_claim_next_prefers_targeted_task(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["task"]["id"] == "task-openclaw"
     assert payload["active_run"]["worker_id"] == "openclaw:autonomous:test:main"
+
+
+def test_claim_next_defaults_to_human_readable_output_without_json_flag(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    seed_store(store)
+
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "claim-next",
+            "--runtime",
+            "openclaw",
+            "--worker-id",
+            "openclaw:autonomous:test:main",
+        ],
+        env={**os.environ, **cli_env(store)},
+    )
+
+    assert result.exit_code == 0
+    assert "ok: true" in result.stdout
+    assert '"task"' not in result.stdout
+    try:
+        json.loads(result.stdout)
+    except json.JSONDecodeError:
+        pass
+    else:  # pragma: no cover - explicit contract check
+        assert False, "default CLI output should not be JSON"
 
 
 def test_claim_next_resumes_same_worker_run(tmp_path: Path) -> None:

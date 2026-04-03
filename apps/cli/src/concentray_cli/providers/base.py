@@ -3,7 +3,17 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Iterable, List, Optional
 
-from concentray_cli.models import Activity, Note, Run, Runtime, Task, TaskExecutionMode, TaskStatus, UpdatedBy
+from concentray_cli.models import (
+    Activity,
+    DEFAULT_LEASE_SECONDS,
+    Note,
+    Run,
+    Runtime,
+    Task,
+    TaskExecutionMode,
+    TaskStatus,
+    UpdatedBy,
+)
 
 
 class Provider(ABC):
@@ -19,7 +29,7 @@ class Provider(ABC):
         *,
         execution_modes: Optional[Iterable[TaskExecutionMode]] = None,
         worker_id: Optional[str] = None,
-        lease_seconds: int = 600,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
     ) -> Optional[Task]:
         raise NotImplementedError
 
@@ -32,7 +42,7 @@ class Provider(ABC):
         statuses: Iterable[TaskStatus],
         execution_modes: Optional[Iterable[TaskExecutionMode]] = None,
         updated_by: UpdatedBy,
-        lease_seconds: int = 600,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
     ) -> tuple[Optional[Task], Optional[Run]]:
         raise NotImplementedError
 

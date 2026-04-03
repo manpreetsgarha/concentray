@@ -10,7 +10,12 @@ PROFILE_TEMPLATE="$REPO_ROOT/openclaw/profiles/default-agent.toml"
 GENERATED_DIR="$REPO_ROOT/.generated/openclaw"
 ALLOWLIST="$GENERATED_DIR/allowlist.toml"
 PROFILE="$GENERATED_DIR/default-agent.toml"
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3)}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python)}"
+
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  echo "python3 or python is required in PATH." >&2
+  exit 1
+fi
 
 if [[ ! -f "$PLUGIN_MANIFEST" ]]; then
   echo "Missing OpenClaw plugin manifest: $PLUGIN_MANIFEST" >&2

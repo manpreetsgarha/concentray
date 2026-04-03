@@ -1,5 +1,5 @@
 {
-  "$id": "context_export.output.v2",
+  "$id": "context_export.output.v1",
   "type": "object",
   "additionalProperties": false,
   "properties": {

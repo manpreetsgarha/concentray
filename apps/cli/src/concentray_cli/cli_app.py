@@ -6,7 +6,15 @@ from concentray_cli.commands.activity import activity_app
 from concentray_cli.commands.agent import agent_app
 from concentray_cli.commands.context import context_app
 from concentray_cli.commands.note import note_app
-from concentray_cli.commands.runtime import runtime_app
+from concentray_cli.commands.runtime import (
+    doctor,
+    init_workspace,
+    runtime_app,
+    runtime_status,
+    serve_local_api,
+    start_workspace,
+    stop_runtime,
+)
 from concentray_cli.commands.skill import skill_app
 from concentray_cli.commands.task import task_app
 from concentray_cli.commands.workspace import workspace_app
@@ -20,9 +28,14 @@ app.add_typer(context_app, name="context")
 app.add_typer(skill_app, name="skill", hidden=True)
 app.add_typer(workspace_app, name="workspace", hidden=True)
 app.add_typer(agent_app, name="agent", hidden=True)
+app.add_typer(runtime_app, name="runtime", hidden=True)
 
-for command in runtime_app.registered_commands:
-    app.registered_commands.append(command)
+app.command("init")(init_workspace)
+app.command("doctor")(doctor)
+app.command("start")(start_workspace)
+app.command("serve-local-api")(serve_local_api)
+app.command("status")(runtime_status)
+app.command("stop")(stop_runtime)
 
 
 def main() -> None:
