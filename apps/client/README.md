@@ -14,7 +14,7 @@ Manual client run:
 
 ```bash
 cd /path/to/concentray/apps/client
-export EXPO_PUBLIC_LOCAL_API_URL=http://127.0.0.1:8787
+export EXPO_PUBLIC_LOCAL_API_PORT=8787
 export EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB=25
 pnpm web
 ```

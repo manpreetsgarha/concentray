@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { Platform, SafeAreaView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 
 import { useTaskDetail } from "./src/hooks/useTaskDetail";
-import { useLocalApi } from "./src/hooks/useLocalApi";
+import { resolveLocalApiBaseUrl, useLocalApi } from "./src/hooks/useLocalApi";
 import { useTaskMutations } from "./src/hooks/useTaskMutations";
 import { useTaskOverview } from "./src/hooks/useTaskOverview";
 import { ConfirmDialog } from "./src/ui/ConfirmDialog";
@@ -21,7 +21,7 @@ function EmptyApiState() {
       <View style={styles.emptyCard}>
         <Text style={styles.emptyTitle}>Connect the local task engine</Text>
         <Text style={styles.emptyBody}>
-          Start the shared API and run the web app with `EXPO_PUBLIC_LOCAL_API_URL` set.
+          Start the shared API and run the web app with `EXPO_PUBLIC_LOCAL_API_URL` or `EXPO_PUBLIC_LOCAL_API_PORT` set.
         </Text>
       </View>
     </SafeAreaView>
@@ -147,7 +147,10 @@ function ConnectedTaskBoard({ sharedApiUrl }: { sharedApiUrl: string }) {
 }
 
 function TaskBoardApp() {
-  const sharedApiUrl = (process.env.EXPO_PUBLIC_LOCAL_API_URL ?? "").trim();
+  const sharedApiUrl = resolveLocalApiBaseUrl(
+    (process.env.EXPO_PUBLIC_LOCAL_API_URL ?? "").trim(),
+    (process.env.EXPO_PUBLIC_LOCAL_API_PORT ?? "").trim()
+  );
 
   useEffect(() => {
     if (Platform.OS !== "web") {

@@ -265,7 +265,8 @@ def start_workspace(
         client_dir = project_root() / "apps" / "client"
         env = dict(os.environ)
         env["EXPO_NO_DOTENV"] = "1"
-        env.setdefault("EXPO_PUBLIC_LOCAL_API_URL", f"http://{url_host}:{resolved_port}")
+        env.pop("EXPO_PUBLIC_LOCAL_API_URL", None)
+        env["EXPO_PUBLIC_LOCAL_API_PORT"] = str(resolved_port)
         env.setdefault("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", os.getenv("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", "25"))
         try:
             web_cmd = ["pnpm", "--dir", str(client_dir), "web"]
@@ -273,7 +274,7 @@ def start_workspace(
                 runtime_support.build_client_contracts(runtime_support.runtime_log_path("contracts-build"))
                 web_cmd = ["pnpm", "--dir", str(client_dir), "exec", "expo", "start", "--web", "--host", "lan"]
             web_process = subprocess.Popen(web_cmd, env=env)
-            typer.echo(f"Started web app in {client_dir} (EXPO_PUBLIC_LOCAL_API_URL={env['EXPO_PUBLIC_LOCAL_API_URL']})")
+            typer.echo(f"Started web app in {client_dir} (EXPO_PUBLIC_LOCAL_API_PORT={env['EXPO_PUBLIC_LOCAL_API_PORT']})")
         except FileNotFoundError as exc:
             raise typer.BadParameter("pnpm was not found in PATH. Install pnpm or run with --no-web.") from exc
 

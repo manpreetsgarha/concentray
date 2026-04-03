@@ -8,6 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import typer
 
@@ -117,6 +118,13 @@ def build_client_contracts(log_path: Path) -> None:
         )
 
 
+def api_port_from_url(api_url: str) -> str:
+    parsed = urlparse(api_url)
+    if parsed.port is None:
+        raise typer.BadParameter(f"API URL must include an explicit port for web clients: {api_url}")
+    return str(parsed.port)
+
+
 def build_background_web_bundle(api_url: str, output_dir: Path, log_path: Path) -> None:
     client_dir = project_root() / "apps" / "client"
     if output_dir.exists():
@@ -129,7 +137,8 @@ def build_background_web_bundle(api_url: str, output_dir: Path, log_path: Path) 
 
     env = dict(os.environ)
     env["EXPO_NO_DOTENV"] = "1"
-    env["EXPO_PUBLIC_LOCAL_API_URL"] = api_url
+    env.pop("EXPO_PUBLIC_LOCAL_API_URL", None)
+    env["EXPO_PUBLIC_LOCAL_API_PORT"] = api_port_from_url(api_url)
     env.setdefault("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", os.getenv("EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB", "25"))
     env.setdefault("BROWSER", "none")
 
