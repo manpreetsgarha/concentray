@@ -260,6 +260,89 @@ def test_provider_rejects_unversioned_store(tmp_path: Path) -> None:
         provider.list_tasks()
 
 
+def test_provider_migrates_legacy_store_on_first_load(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    store.write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {
+                        "Task_ID": "task-1",
+                        "Title": "Ship UI",
+                        "Status": "Pending",
+                        "Created_By": "Human",
+                        "Assignee": "AI",
+                        "Context_Link": "https://example.com/brief",
+                        "AI_Urgency": 4,
+                        "Input_Request": None,
+                        "Input_Request_Version": None,
+                        "Input_Response": None,
+                        "Worker_ID": "openclaw:autonomous:Host:main",
+                        "Claimed_At": "2099-03-11T04:52:00+00:00",
+                        "Created_At": "2099-03-11T04:51:39+00:00",
+                        "Updated_At": "2099-03-11T04:53:00+00:00",
+                        "Updated_By": "Human",
+                        "Version": 1,
+                        "Field_Clock": {},
+                        "Deleted_At": None,
+                    }
+                ],
+                "comments": [
+                    {
+                        "Comment_ID": "comment-1",
+                        "Task_ID": "task-1",
+                        "Author": "Human",
+                        "Body": "Legacy note",
+                        "Created_At": "2099-03-11T04:54:00+00:00",
+                        "Deleted_At": None,
+                    }
+                ],
+            }
+        )
+    )
+
+    provider = LocalJsonProvider(store)
+    tasks = provider.list_tasks()
+    notes = provider.list_notes("task-1")
+    run = provider.get_active_run("task-1")
+    migrated = json.loads(store.read_text())
+
+    assert len(tasks) == 1
+    assert tasks[0].id == "task-1"
+    assert tasks[0].title == "Ship UI"
+    assert tasks[0].status == "pending"
+    assert tasks[0].assignee == "ai"
+    assert tasks[0].active_run_id is not None
+    assert len(notes) == 1
+    assert notes[0].content == "Legacy note"
+    assert run is not None
+    assert run.worker_id == "openclaw:autonomous:host:main"
+
+    assert migrated["schema_version"] == "1.0"
+    assert migrated["tasks"][0]["id"] == "task-1"
+    assert migrated["tasks"][0]["active_run_id"] == run.id
+    assert migrated["notes"][0]["id"] == "comment-1"
+    assert migrated["runs"][0]["worker_id"] == "openclaw:autonomous:host:main"
+    assert migrated["activity"] == []
+
+
+def test_provider_migrates_empty_legacy_store(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    store.write_text(json.dumps({"tasks": [], "comments": []}))
+
+    provider = LocalJsonProvider(store)
+
+    assert provider.list_tasks() == []
+    migrated = json.loads(store.read_text())
+    assert migrated == {
+        "schema_version": "1.0",
+        "tasks": [],
+        "notes": [],
+        "runs": [],
+        "activity": [],
+    }
+
+
 def test_provider_rejects_empty_object_store(tmp_path: Path) -> None:
     store = tmp_path / "store.json"
     store.write_text("{}")

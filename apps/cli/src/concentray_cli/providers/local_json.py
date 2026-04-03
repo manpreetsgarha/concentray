@@ -6,6 +6,7 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from uuid import uuid4
 
 from concentray_cli.models import (
     Activity,
@@ -39,6 +40,232 @@ except ModuleNotFoundError:  # pragma: no cover
     fcntl = None
 
 
+LEGACY_STATUS_MAP = {
+    "pending": TaskStatus.PENDING,
+    "in_progress": TaskStatus.IN_PROGRESS,
+    "blocked": TaskStatus.BLOCKED,
+    "done": TaskStatus.DONE,
+}
+LEGACY_ASSIGNEE_MAP = {
+    "ai": Assignee.AI,
+    "human": Assignee.HUMAN,
+}
+LEGACY_UPDATED_BY_MAP = {
+    "ai": UpdatedBy.AI,
+    "human": UpdatedBy.HUMAN,
+    "system": UpdatedBy.SYSTEM,
+}
+
+
+def _legacy_token(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+
+def _legacy_string(payload: Dict[str, Any], *keys: str) -> Optional[str]:
+    for key in keys:
+        value = payload.get(key)
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _legacy_enum_value(
+    payload: Dict[str, Any],
+    *,
+    keys: tuple[str, ...],
+    mapping: Dict[str, Any],
+    default: Any,
+) -> Any:
+    for key in keys:
+        if key not in payload or payload.get(key) is None:
+            continue
+        token = _legacy_token(payload.get(key))
+        if token in mapping:
+            return mapping[token]
+        break
+    return default
+
+
+def _legacy_runtime_from_worker_id(worker_id: Optional[str]) -> Optional[Runtime]:
+    value = str(worker_id or "").strip().lower()
+    if not value:
+        return None
+    prefix = value.split(":", 1)[0]
+    try:
+        return Runtime(prefix)
+    except ValueError:
+        return None
+
+
+def _legacy_comment_attachment(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    raw_attachment = payload.get("Attachment")
+    if raw_attachment is None:
+        raw_attachment = payload.get("attachment")
+    if raw_attachment is None:
+        return None
+    if not isinstance(raw_attachment, dict):
+        return None
+    return normalize_attachment_metadata(raw_attachment, field="attachment")
+
+
+def _migrate_legacy_task(payload: Dict[str, Any], runs: List[Run]) -> Optional[Task]:
+    deleted_at = _legacy_string(payload, "Deleted_At", "deleted_at")
+    if deleted_at:
+        return None
+
+    task_id = _legacy_string(payload, "Task_ID", "id") or str(uuid4())
+    created_at = _legacy_string(payload, "Created_At", "created_at") or iso_now()
+    updated_at = _legacy_string(payload, "Updated_At", "updated_at") or created_at
+    input_request = normalize_input_request(payload.get("Input_Request"), created_at=created_at)
+    raw_input_response = payload.get("Input_Response")
+    input_response = (
+        normalize_input_response(input_request, raw_input_response)
+        if input_request is not None and raw_input_response is not None
+        else None
+    )
+    assignee = _legacy_enum_value(
+        payload,
+        keys=("Assignee", "assignee"),
+        mapping=LEGACY_ASSIGNEE_MAP,
+        default=Assignee.AI,
+    )
+    status = _legacy_enum_value(
+        payload,
+        keys=("Status", "status"),
+        mapping=LEGACY_STATUS_MAP,
+        default=TaskStatus.PENDING,
+    )
+    updated_by = _legacy_enum_value(
+        payload,
+        keys=("Updated_By", "updated_by", "Created_By", "created_by"),
+        mapping=LEGACY_UPDATED_BY_MAP,
+        default=UpdatedBy.HUMAN,
+    )
+    execution_mode = TaskExecutionMode.SESSION if assignee == Assignee.HUMAN and input_request is None else TaskExecutionMode.AUTONOMOUS
+
+    active_run_id: Optional[str] = None
+    worker_id = _legacy_string(payload, "Worker_ID", "worker_id")
+    claimed_at = _legacy_string(payload, "Claimed_At", "claimed_at")
+    runtime = _legacy_runtime_from_worker_id(worker_id)
+    if (
+        worker_id is not None
+        and claimed_at is not None
+        and runtime is not None
+        and assignee == Assignee.AI
+        and status in {TaskStatus.PENDING, TaskStatus.IN_PROGRESS}
+    ):
+        run = Run(
+            task_id=task_id,
+            runtime=runtime,
+            worker_id=worker_id.lower(),
+            status=RunStatus.ACTIVE,
+            started_at=claimed_at,
+            last_heartbeat_at=updated_at,
+            lease_seconds=DEFAULT_LEASE_SECONDS,
+        )
+        runs.append(run)
+        active_run_id = run.id
+
+    return Task(
+        id=task_id,
+        title=_legacy_string(payload, "Title", "title") or f"Migrated task {task_id}",
+        status=status,
+        assignee=assignee,
+        target_runtime=_legacy_runtime_from_worker_id(_legacy_string(payload, "Target_Runtime", "target_runtime")),
+        execution_mode=execution_mode,
+        ai_urgency=int(payload.get("AI_Urgency", payload.get("ai_urgency", 3)) or 3),
+        context_link=_legacy_string(payload, "Context_Link", "context_link"),
+        input_request=input_request,
+        input_response=input_response,
+        active_run_id=active_run_id,
+        check_in_requested_at=_legacy_string(payload, "Check_In_Requested_At", "check_in_requested_at"),
+        check_in_requested_by=_legacy_enum_value(
+            payload,
+            keys=("Check_In_Requested_By", "check_in_requested_by"),
+            mapping=LEGACY_UPDATED_BY_MAP,
+            default=None,
+        ),
+        created_at=created_at,
+        updated_at=updated_at,
+        updated_by=updated_by,
+    )
+
+
+def _migrate_legacy_comment(payload: Dict[str, Any]) -> Optional[Note]:
+    deleted_at = _legacy_string(payload, "Deleted_At", "deleted_at")
+    if deleted_at:
+        return None
+
+    task_id = _legacy_string(payload, "Task_ID", "task_id")
+    if task_id is None:
+        return None
+
+    attachment = _legacy_comment_attachment(payload)
+    return Note(
+        id=_legacy_string(payload, "Comment_ID", "comment_id", "id") or str(uuid4()),
+        task_id=task_id,
+        author=_legacy_enum_value(
+            payload,
+            keys=("Author", "author", "Updated_By", "updated_by", "Created_By", "created_by"),
+            mapping=LEGACY_UPDATED_BY_MAP,
+            default=UpdatedBy.HUMAN,
+        ),
+        kind=NoteKind.ATTACHMENT if attachment is not None else NoteKind.NOTE,
+        content=_legacy_string(payload, "Content", "content", "Body", "body", "Comment", "comment", "Text", "text", "Message", "message") or "",
+        attachment=attachment,
+        created_at=_legacy_string(payload, "Created_At", "created_at", "Updated_At", "updated_at") or iso_now(),
+    )
+
+
+def _is_legacy_store_payload(payload: Dict[str, Any]) -> bool:
+    if "comments" in payload:
+        return True
+    tasks = payload.get("tasks")
+    if not isinstance(tasks, list):
+        return False
+    return any(
+        isinstance(task, dict)
+        and any(
+            key in task
+            for key in (
+                "Task_ID",
+                "Title",
+                "Created_By",
+                "Input_Request_Version",
+                "Field_Clock",
+                "Deleted_At",
+                "Worker_ID",
+                "Claimed_At",
+            )
+        )
+        for task in tasks
+    )
+
+
+def _migrate_legacy_store(payload: Dict[str, Any]) -> Store:
+    raw_tasks = payload.get("tasks")
+    raw_comments = payload.get("comments")
+    if not isinstance(raw_tasks, list) or not isinstance(raw_comments, list):
+        raise ValueError(
+            f"Unsupported local store schema. Expected {LOCAL_STORE_SCHEMA_VERSION}, "
+            "reinitialize the workspace with `concentray init`."
+        )
+
+    runs: List[Run] = []
+    tasks = [task for item in raw_tasks if isinstance(item, dict) if (task := _migrate_legacy_task(item, runs)) is not None]
+    task_ids = {task.id for task in tasks}
+    notes = [
+        note
+        for item in raw_comments
+        if isinstance(item, dict)
+        if (note := _migrate_legacy_comment(item)) is not None and note.task_id in task_ids
+    ]
+    return Store(tasks=tasks, notes=notes, runs=runs, activity=[])
+
+
 class LocalJsonProvider(Provider):
     def __init__(self, store_path: Path):
         self.store_path = store_path
@@ -59,7 +286,7 @@ class LocalJsonProvider(Provider):
                 if fcntl is not None:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    def _load(self) -> Store:
+    def _load(self) -> tuple[Store, bool]:
         raw_payload = self.store_path.read_text()
         if not raw_payload.strip():
             raise ValueError(
@@ -73,12 +300,14 @@ class LocalJsonProvider(Provider):
                 "reinitialize the workspace with `concentray init`."
             )
         schema_version = payload.get("schema_version")
+        if schema_version is None and _is_legacy_store_payload(payload):
+            return _migrate_legacy_store(payload), True
         if schema_version != LOCAL_STORE_SCHEMA_VERSION:
             raise ValueError(
                 f"Unsupported local store schema. Expected {LOCAL_STORE_SCHEMA_VERSION}, "
                 "reinitialize the workspace with `concentray init`."
             )
-        return Store.model_validate(payload)
+        return Store.model_validate(payload), False
 
     def _save(self, store: Store) -> None:
         fd, temp_name = tempfile.mkstemp(
@@ -193,8 +422,8 @@ class LocalJsonProvider(Provider):
         return changed
 
     def _load_locked(self) -> Store:
-        store = self._load()
-        if self._normalize_store_locked(store):
+        store, migrated = self._load()
+        if migrated or self._normalize_store_locked(store):
             self._save(store)
         return store
 

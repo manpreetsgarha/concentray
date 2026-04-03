@@ -56,7 +56,7 @@ export function TaskSidebar({
       <View style={styles.brandRow}>
         <LogoMark />
         <View style={styles.brandCopy}>
-          <Text style={styles.brandTitle}>Concentray v2</Text>
+          <Text style={styles.brandTitle}>Concentray</Text>
           <Text style={styles.brandSubtitle}>Local AI task engine</Text>
         </View>
         <Pressable style={styles.iconButton} onPress={onRefresh}>

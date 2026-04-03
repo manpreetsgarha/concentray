@@ -13,7 +13,7 @@ Concentray does not replace Codex, Claude Code, or OpenClaw. It keeps their work
 
 ## Scope
 
-Concentray v2 is currently built for one operator coordinating local work with one or more agents.
+Concentray is currently built for one operator coordinating local work with one or more agents.
 
 It is not a hosted multi-user backend, a realtime sync service, or a permissioned collaboration platform.
 
