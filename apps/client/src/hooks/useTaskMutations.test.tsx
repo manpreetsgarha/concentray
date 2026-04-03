@@ -18,11 +18,12 @@ vi.mock("../lib/uploads", () => ({
 }));
 
 import { useTaskMutations, type CreateTaskPayload } from "./useTaskMutations";
+import type { BlockerSubmission } from "../lib/blockerSubmission";
 import type { Task } from "../types";
 
 interface MutationHarness {
   createTask: (payload: CreateTaskPayload) => Promise<void>;
-  respondToBlocker: (payload: { type: "choice"; selections: string[] }) => Promise<void>;
+  respondToBlocker: (payload: BlockerSubmission) => Promise<void>;
   uploadAttachment: () => Promise<void>;
 }
 
@@ -179,6 +180,99 @@ describe("useTaskMutations", () => {
     testRenderer.unmount();
   });
 
+  it("uploads blocker files before submitting the response payload", async () => {
+    const apiRequest = vi.fn(async (_path: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true };
+      }
+      return {};
+    });
+    const loadOverview = vi.fn(async () => {});
+    const loadTaskDetail = vi.fn(async () => {});
+    const uploadedA = {
+      kind: "file",
+      filename: "approval.pdf",
+      mime_type: "application/pdf",
+      size_bytes: 4096,
+      sha256: "sha-a",
+      uploaded_at: "2026-03-03T10:00:00Z",
+      download_link: "https://example.com/approval.pdf",
+    };
+    const uploadedB = {
+      kind: "file",
+      filename: "signoff.png",
+      mime_type: "image/png",
+      size_bytes: 2048,
+      sha256: "sha-b",
+      uploaded_at: "2026-03-03T10:01:00Z",
+      download_link: "https://example.com/signoff.png",
+    };
+    mockUploadTaskFile.mockResolvedValueOnce(uploadedA).mockResolvedValueOnce(uploadedB);
+    let current: MutationHarness | null = null;
+    let renderer: { unmount: () => void } | null = null;
+
+    await act(async () => {
+      renderer = create(
+        <HookHarness
+          onReady={(value) => {
+            current = value;
+          }}
+          options={{
+            apiRequest,
+            selectedTask: makeTask("task-1"),
+            noteDraft: "",
+            setNoteDraft: vi.fn(),
+            setSelectedTaskId: vi.fn(),
+            setApiError: vi.fn(),
+            loadOverview,
+            loadTaskDetail,
+          }}
+        />
+      );
+    });
+
+    if (!current || !renderer) {
+      throw new Error("Hook harness did not initialize");
+    }
+    const mutations = current as MutationHarness;
+    const testRenderer = renderer as { unmount: () => void };
+    const files = [
+      {
+        filename: "approval.pdf",
+        mime_type: "application/pdf",
+        size_bytes: 4096,
+        data_base64: "JVBERi0xLjQ=",
+      },
+      {
+        filename: "signoff.png",
+        mime_type: "image/png",
+        size_bytes: 2048,
+        data_base64: "c2lnbm9mZg==",
+      },
+    ];
+
+    await act(async () => {
+      await mutations.respondToBlocker({ type: "file_or_photo", files });
+    });
+
+    expect(mockUploadTaskFile).toHaveBeenNthCalledWith(1, apiRequest, "task-1", files[0]);
+    expect(mockUploadTaskFile).toHaveBeenNthCalledWith(2, apiRequest, "task-1", files[1]);
+    expect(apiRequest).toHaveBeenCalledWith(
+      "/tasks/task-1/respond",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          updated_by: "human",
+          response: { type: "file_or_photo", files: [uploadedA, uploadedB] },
+        }),
+      })
+    );
+    expect(loadTaskDetail).toHaveBeenCalledWith("task-1");
+    expect(loadOverview).toHaveBeenCalled();
+
+    testRenderer.unmount();
+  });
+
   it("cancels attachment upload when the selected task changes during file picking", async () => {
     const apiRequest = vi.fn();
     const setApiError = vi.fn();
@@ -250,6 +344,90 @@ describe("useTaskMutations", () => {
     expect(setNoteDraft).not.toHaveBeenCalled();
     expect(loadTaskDetail).not.toHaveBeenCalled();
     expect(setApiError).toHaveBeenCalledWith("Task changed while selecting a file. Please try again.");
+
+    testRenderer.unmount();
+  });
+
+  it("uploads attachments and posts a default note when the draft is empty", async () => {
+    const apiRequest = vi.fn(async (_path: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return { ok: true };
+      }
+      return {};
+    });
+    const setApiError = vi.fn();
+    const loadOverview = vi.fn(async () => {});
+    const loadTaskDetail = vi.fn(async () => {});
+    const setNoteDraft = vi.fn();
+    const setSelectedTaskId = vi.fn();
+    const pickedDraft = {
+      filename: "approval.pdf",
+      mime_type: "application/pdf",
+      size_bytes: 4096,
+      data_base64: "JVBERi0xLjQ=",
+    };
+    const attachment = {
+      kind: "file",
+      filename: "approval.pdf",
+      mime_type: "application/pdf",
+      size_bytes: 4096,
+      sha256: "abc123",
+      uploaded_at: "2026-03-03T10:00:00Z",
+      download_link: "https://example.com/approval.pdf",
+    };
+    mockPickFileForUpload.mockResolvedValue(pickedDraft);
+    mockUploadTaskFile.mockResolvedValue(attachment);
+    let current: MutationHarness | null = null;
+    let renderer: ReturnType<typeof create> | null = null;
+
+    await act(async () => {
+      renderer = create(
+        <HookHarness
+          onReady={(value) => {
+            current = value;
+          }}
+          options={{
+            apiRequest,
+            selectedTask: makeTask("task-1"),
+            noteDraft: "   ",
+            setNoteDraft,
+            setSelectedTaskId,
+            setApiError,
+            loadOverview,
+            loadTaskDetail,
+          }}
+        />
+      );
+    });
+
+    if (!current || !renderer) {
+      throw new Error("Hook harness did not initialize");
+    }
+    const mutations = current as MutationHarness;
+    const testRenderer = renderer as ReturnType<typeof create>;
+
+    await act(async () => {
+      await mutations.uploadAttachment();
+    });
+
+    expect(mockPickFileForUpload).toHaveBeenCalled();
+    expect(mockUploadTaskFile).toHaveBeenCalledWith(apiRequest, "task-1", pickedDraft);
+    expect(apiRequest).toHaveBeenCalledWith(
+      "/tasks/task-1/notes",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          author: "human",
+          kind: "attachment",
+          content: "Uploaded approval.pdf.",
+          attachment,
+        }),
+      })
+    );
+    expect(setNoteDraft).toHaveBeenCalledWith("");
+    expect(loadTaskDetail).toHaveBeenCalledWith("task-1");
+    expect(loadOverview).not.toHaveBeenCalled();
+    expect(setApiError).toHaveBeenCalledWith(null);
 
     testRenderer.unmount();
   });

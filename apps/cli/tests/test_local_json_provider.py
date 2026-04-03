@@ -386,6 +386,75 @@ def test_add_note_creates_human_note_and_activity_record(tmp_path: Path) -> None
     assert activity[-1].payload == {"note_id": note.id, "kind": "attachment"}
 
 
+def test_delete_task_removes_related_notes_runs_and_activity(tmp_path: Path) -> None:
+    store = tmp_path / "store.json"
+    _seed_store(
+        store,
+        tasks=[
+            _task("task-1", status="in_progress", target_runtime="openclaw", active_run_id="run-1"),
+            _task("task-2", assignee="human", execution_mode="session"),
+        ],
+        runs=[
+            _run("run-1", "task-1"),
+            _run("run-2", "task-2"),
+        ],
+        notes=[
+            {
+                "id": "note-1",
+                "task_id": "task-1",
+                "author": "human",
+                "kind": "note",
+                "content": "Delete me",
+                "attachment": None,
+                "created_at": "2026-03-03T10:00:00+00:00",
+            },
+            {
+                "id": "note-2",
+                "task_id": "task-2",
+                "author": "human",
+                "kind": "note",
+                "content": "Keep me",
+                "attachment": None,
+                "created_at": "2026-03-03T10:01:00+00:00",
+            },
+        ],
+        activity=[
+            {
+                "id": "activity-1",
+                "task_id": "task-1",
+                "actor": "human",
+                "kind": "note_added",
+                "summary": "Delete me",
+                "payload": None,
+                "runtime": None,
+                "run_id": None,
+                "created_at": "2026-03-03T10:00:00+00:00",
+            },
+            {
+                "id": "activity-2",
+                "task_id": "task-2",
+                "actor": "human",
+                "kind": "note_added",
+                "summary": "Keep me",
+                "payload": None,
+                "runtime": None,
+                "run_id": None,
+                "created_at": "2026-03-03T10:01:00+00:00",
+            },
+        ],
+    )
+    provider = LocalJsonProvider(store)
+
+    deleted = provider.delete_task("task-1", updated_by=UpdatedBy.HUMAN)
+
+    assert deleted is True
+    payload = json.loads(store.read_text())
+    assert [task["id"] for task in payload["tasks"]] == ["task-2"]
+    assert [run["id"] for run in payload["runs"]] == ["run-2"]
+    assert [note["id"] for note in payload["notes"]] == ["note-2"]
+    assert [entry["id"] for entry in payload["activity"]] == ["activity-2"]
+
+
 def test_update_task_rejects_input_request_without_human_blocked_state(tmp_path: Path) -> None:
     store = tmp_path / "store.json"
     _seed_store(store, tasks=[_task("task-1", target_runtime="openclaw")])

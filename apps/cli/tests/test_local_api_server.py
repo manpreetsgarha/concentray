@@ -501,6 +501,159 @@ def test_local_api_respond_endpoint_unblocks_task(tmp_path: Path, monkeypatch) -
         thread.join(timeout=2)
 
 
+def test_local_api_full_blocker_file_response_workflow(tmp_path: Path, monkeypatch) -> None:
+    workspace_config = tmp_path / "workspaces.json"
+    monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))
+
+    server = make_server(
+        host="127.0.0.1",
+        port=0,
+        uploads_dir=tmp_path / "uploads",
+        provider_factory=make_provider,
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    try:
+        store = tmp_path / "default.json"
+        _request(base_url, "POST", "/workspaces", {"name": "default", "store": str(store), "set_active": True})
+        _, created = _request(
+            base_url,
+            "POST",
+            "/tasks",
+            {
+                "title": "Collect signed approval",
+                "assignee": "ai",
+                "target_runtime": "openclaw",
+                "execution_mode": "autonomous",
+                "ai_urgency": 5,
+                "updated_by": "human",
+            },
+        )
+        task_id = created["task"]["id"]
+
+        _, claimed = _request(
+            base_url,
+            "POST",
+            "/tasks/claim-next",
+            {"runtime": "openclaw", "worker_id": "openclaw:autonomous:test:main"},
+        )
+        assert claimed["task"]["id"] == task_id
+        first_run_id = claimed["active_run"]["id"]
+
+        status, check_in = _request(base_url, "POST", f"/tasks/{task_id}/check-in-request", {"requested_by": "human"})
+        assert status == 201
+        assert check_in["pending_check_in"]["requested_by"] == "human"
+
+        status, blocked = _request(
+            base_url,
+            "PATCH",
+            f"/tasks/{task_id}",
+            {
+                "status": "blocked",
+                "assignee": "human",
+                "updated_by": "ai",
+                "runtime": "openclaw",
+                "worker_id": "openclaw:autonomous:test:main",
+                "input_request": {
+                    "schema_version": "1.0",
+                    "request_id": "req-file",
+                    "type": "file_or_photo",
+                    "prompt": "Upload the signed approval note.",
+                    "required": True,
+                    "created_at": "2026-03-03T10:00:00+00:00",
+                    "accept": ["text/plain"],
+                    "max_files": 1,
+                    "max_size_mb": 5,
+                },
+            },
+        )
+        assert status == 200
+        assert blocked["task"]["status"] == "blocked"
+        assert blocked["task"]["assignee"] == "human"
+        assert blocked["task"]["input_request"]["type"] == "file_or_photo"
+        assert blocked["active_run"] is None
+        assert blocked["pending_check_in"]["requested_by"] == "human"
+
+        status, upload_payload = _request(
+            base_url,
+            "POST",
+            "/files",
+            {
+                "task_id": task_id,
+                "filename": "approval.txt",
+                "mime_type": "text/plain",
+                "data_base64": "YXBwcm92ZWQgb24gbW9iaWxl",
+            },
+        )
+        assert status == 201
+        assert upload_payload["file"]["kind"] == "text"
+        assert upload_payload["file"]["preview_text"] == "approved on mobile"
+
+        status, responded = _request(
+            base_url,
+            "POST",
+            f"/tasks/{task_id}/respond",
+            {
+                "updated_by": "human",
+                "response": {
+                    "type": "file_or_photo",
+                    "files": [upload_payload["file"]],
+                },
+            },
+        )
+        assert status == 200
+        assert responded["task"]["status"] == "pending"
+        assert responded["task"]["assignee"] == "ai"
+        assert responded["task"]["execution_mode"] == "autonomous"
+        assert responded["task"]["input_request"] is None
+        assert responded["task"]["input_response"]["type"] == "file_or_photo"
+        assert responded["task"]["input_response"]["files"][0]["filename"] == "approval.txt"
+        assert responded["active_run"] is None
+        assert responded["pending_check_in"] is None
+
+        status, task_payload = _request(base_url, "GET", f"/tasks/{task_id}")
+        assert status == 200
+        assert task_payload["task"]["input_response"]["files"][0]["download_link"].startswith(f"{base_url}/files/")
+        assert task_payload["pending_check_in"] is None
+
+        status, activity_payload = _request(base_url, "GET", f"/tasks/{task_id}/activity")
+        assert status == 200
+        activity_kinds = [entry["kind"] for entry in activity_payload["activity"]]
+        assert "check_in_requested" in activity_kinds
+        assert "input_responded" in activity_kinds
+
+        status, reclaimed = _request(
+            base_url,
+            "POST",
+            "/tasks/claim-next",
+            {"runtime": "openclaw", "worker_id": "openclaw:autonomous:test:next"},
+        )
+        assert status == 200
+        assert reclaimed["task"]["id"] == task_id
+        assert reclaimed["active_run"]["id"] != first_run_id
+
+        status, _ = _request(base_url, "DELETE", f"/tasks/{task_id}")
+        assert status == 204
+
+        status, tasks_payload = _request(base_url, "GET", "/tasks")
+        assert status == 200
+        assert tasks_payload["tasks"] == []
+
+        try:
+            urllib.request.urlopen(f"{base_url}/tasks/{task_id}", timeout=5)
+            assert False, "Expected deleted task lookup to fail"
+        except urllib.error.HTTPError as exc:
+            payload = json.loads(exc.read().decode("utf-8"))
+            assert exc.code == 404
+            assert payload["ok"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_local_api_delete_returns_204_no_content(tmp_path: Path, monkeypatch) -> None:
     workspace_config = tmp_path / "workspaces.json"
     monkeypatch.setenv("TM_WORKSPACE_CONFIG", str(workspace_config))

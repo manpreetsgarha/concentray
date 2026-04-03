@@ -99,4 +99,88 @@ describe("BlockerCard", () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
   });
+
+  it("submits uploaded files and forwards the picker constraints", async () => {
+    const onSubmit = vi.fn();
+    mockPickFilesForUpload.mockResolvedValue([
+      {
+        filename: "brief.txt",
+        mime_type: "text/plain",
+        size_bytes: 24,
+        data_base64: "YnJpZWY=",
+      },
+    ]);
+
+    const tree = create(
+      <BlockerCard
+        inputRequest={{
+          schema_version: "1.0",
+          request_id: "req-file",
+          type: "file_or_photo",
+          prompt: "Upload the requested file.",
+          required: true,
+          created_at: "2026-03-03T10:00:00Z",
+          accept: ["text/plain", "image/*"],
+          max_files: 2,
+          max_size_mb: 10,
+          capture: false,
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const buttons = tree.root.findAllByType(Pressable);
+    await act(async () => {
+      buttons[0]?.props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(mockPickFilesForUpload).toHaveBeenCalledWith({
+      accept: ".txt,text/plain,image/*",
+      multiple: true,
+    });
+    expect(onSubmit).toHaveBeenCalledWith({
+      type: "file_or_photo",
+      files: [
+        {
+          filename: "brief.txt",
+          mime_type: "text/plain",
+          size_bytes: 24,
+          data_base64: "YnJpZWY=",
+        },
+      ],
+    });
+  });
+
+  it("surfaces picker errors while mounted", async () => {
+    const onError = vi.fn();
+    mockPickFilesForUpload.mockRejectedValue(new Error("Failed to read selected file."));
+
+    const tree = create(
+      <BlockerCard
+        inputRequest={{
+          schema_version: "1.0",
+          request_id: "req-file",
+          type: "file_or_photo",
+          prompt: "Upload the requested file.",
+          required: true,
+          created_at: "2026-03-03T10:00:00Z",
+          accept: ["text/plain"],
+          max_files: 1,
+          max_size_mb: 10,
+          capture: false,
+        }}
+        onError={onError}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const buttons = tree.root.findAllByType(Pressable);
+    await act(async () => {
+      buttons[0]?.props.onPress();
+      await Promise.resolve();
+    });
+
+    expect(onError).toHaveBeenCalledWith("Failed to read selected file.");
+  });
 });
