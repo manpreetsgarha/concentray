@@ -1,55 +1,42 @@
 # @concentray/client
 
-Expo Web-first human client for the Concentray.
+Expo web client for the local Concentray runtime.
 
 ## Run
 
+Preferred path from the repo root:
+
 ```bash
-pnpm install
-pnpm web
+./scripts/concentray start
 ```
 
-## Architecture
-
-The client is organized around a few clear layers:
-
-- `src/data` handles API helpers and wire-to-domain mapping
-- `src/hooks` owns overview polling, selected-task detail loading, mutation orchestration, and shared API access
-- `src/lib` holds pure formatting and upload helpers
-- `src/ui` contains reusable presentation components for the sidebar, detail pane, attachments, dialogs, and the root error boundary
-- `App.tsx` is now a thin shell that composes those hooks and top-level layout pieces
-
-Shared domain primitives such as actor/status/execution-mode/input-request types come from `@concentray/contracts`.
-Client-specific view models stay in `src/types.ts`.
-At runtime the contracts package is consumed from `packages/contracts/dist`, not from raw source exports.
-
-The client deliberately does not use a separate local-sync package. It talks to the shared local API directly and uses polling for refresh.
-
-## Shared local storage (UI + terminal agent)
-
-1. Start the local shared API from the repo root:
+Manual client run:
 
 ```bash
-cd /path/to/concentray
-export TM_PROVIDER=local_json
-export TM_LOCAL_STORE=./.data/store.json
-concentray serve-local-api --host 127.0.0.1 --port 8787
-```
-
-2. For a manual Expo run, export the client env before starting web:
-
-```bash
+cd /path/to/concentray/apps/client
 export EXPO_PUBLIC_LOCAL_API_URL=http://127.0.0.1:8787
 export EXPO_PUBLIC_LOCAL_UPLOAD_MAX_MB=25
 pnpm web
 ```
 
-Now the web app and terminal agent both read/write the same local store.
-That store is versioned developer state, not a stable migration target across schema changes.
+The client talks directly to the shared local API. It does not use a separate local-sync package.
 
-The local shared API intentionally uses wildcard CORS for same-machine development. Keep it on trusted local surfaces only.
+## Architecture
 
-When using `./scripts/concentray start`, the CLI injects these variables automatically. Do not commit a project-local `apps/client/.env` with a fixed API URL.
+- `src/data` - API helpers and wire-to-domain mapping
+- `src/hooks` - overview polling, detail loading, mutations, API access
+- `src/lib` - formatting and upload helpers
+- `src/ui` - reusable presentation components and dialogs
+- `App.tsx` - top-level shell and layout composition
+
+Shared types come from `@concentray/contracts` through the workspace package.
+Client-specific view models stay in `src/types.ts`.
+
+## Notes
+
+- `./scripts/concentray start` injects the client env automatically
+- do not commit a fixed `apps/client/.env` pointing at one machine
+- the shared local API is wildcard-CORS and intentionally local-only
 
 ## Quality checks
 
@@ -57,10 +44,3 @@ When using `./scripts/concentray start`, the CLI injects these variables automat
 pnpm typecheck
 pnpm test
 ```
-
-Attachment types supported in the comment thread:
-
-- photos (`image/*`)
-- videos (`video/*`)
-- text (`.txt`)
-- csv (`.csv`)
