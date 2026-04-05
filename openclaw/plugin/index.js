@@ -128,6 +128,7 @@ export default function concentrayPlugin(api) {
   for (const tool of toolDefinitions) {
     api.registerTool({
       name: tool.id,
+      label: tool.title,
       description: tool.description,
       parameters: loadSchema(tool.schemaFile),
       async execute(_callId, params) {

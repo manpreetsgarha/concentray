@@ -247,6 +247,7 @@ import(pluginPath).then((module) => {
     registerTool(tool) {
       tools.push({
         name: tool.name,
+        label: tool.label,
         description: tool.description,
         parameters: tool.parameters,
         executeType: typeof tool.execute,
@@ -273,6 +274,7 @@ import(pluginPath).then((module) => {
     tools = json.loads(process.stdout)
     assert tools
     assert all(isinstance(tool["name"], str) and tool["name"] for tool in tools)
+    assert all(isinstance(tool["label"], str) and tool["label"] for tool in tools)
     assert all(isinstance(tool["description"], str) and tool["description"] for tool in tools)
     assert all(isinstance(tool["parameters"], dict) for tool in tools)
     assert all(isinstance(tool["parameters"].get("properties"), dict) for tool in tools)
