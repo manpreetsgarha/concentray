@@ -231,3 +231,49 @@ def test_openclaw_wrapper_preserves_skill_args_with_commas() -> None:
 
     assert "--args-json" in args
     assert args[args.index("--args-json") + 1] == '["first,arg", "second"]'
+
+
+def test_openclaw_plugin_registers_current_tool_contract() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    script = """
+const pluginPath = process.env.PLUGIN_PATH;
+if (!pluginPath) {
+  throw new Error("PLUGIN_PATH is required");
+}
+
+import(pluginPath).then((module) => {
+  const tools = [];
+  module.default({
+    registerTool(tool) {
+      tools.push({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        executeType: typeof tool.execute,
+      });
+    },
+  });
+  console.log(JSON.stringify(tools));
+}).catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+""".strip()
+
+    process = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+        env={**os.environ, "PLUGIN_PATH": str(repo_root / "openclaw" / "plugin" / "index.js")},
+    )
+
+    assert process.returncode == 0, process.stderr
+    tools = json.loads(process.stdout)
+    assert tools
+    assert all(isinstance(tool["name"], str) and tool["name"] for tool in tools)
+    assert all(isinstance(tool["description"], str) and tool["description"] for tool in tools)
+    assert all(isinstance(tool["parameters"], dict) for tool in tools)
+    assert all(isinstance(tool["parameters"].get("properties"), dict) for tool in tools)
+    assert all(tool["executeType"] == "function" for tool in tools)

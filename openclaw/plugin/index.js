@@ -127,12 +127,11 @@ function renderToolPayload(payload) {
 export default function concentrayPlugin(api) {
   for (const tool of toolDefinitions) {
     api.registerTool({
-      id: tool.id,
-      title: tool.title,
+      name: tool.id,
       description: tool.description,
-      inputSchema: loadSchema(tool.schemaFile),
-      async execute(input) {
-        const payload = runConcentrayTool(tool.id, input);
+      parameters: loadSchema(tool.schemaFile),
+      async execute(_callId, params) {
+        const payload = runConcentrayTool(tool.id, params ?? {});
         return renderToolPayload(payload);
       },
     });
